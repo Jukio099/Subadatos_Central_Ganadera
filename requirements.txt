@@ -5,7 +5,8 @@ beautifulsoup4==4.12.3
 pdfplumber==0.11.0
 
 # Base de datos
-supabase==2.3.4
+supabase==2.15.1
+httpx>=0.27.0
 python-dotenv==1.0.0
 
 # Procesamiento de datos
