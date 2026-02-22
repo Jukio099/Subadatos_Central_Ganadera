@@ -659,19 +659,54 @@ def main():
     mostrar_kpis(df_filtrado)
     st.divider()
 
-    # Pestañas — CSS para duplicar el tamaño del texto de los headers
+    # CSS: tabs grandes + layout responsive para móvil
     st.markdown(
         """
         <style>
-        /* Texto de cada pestaña del st.tabs */
+        /* ── TABS: texto grande en desktop ── */
         [data-baseweb="tab"] button p {
             font-size: 2rem !important;
             font-weight: 600 !important;
         }
-        /* Más padding vertical para que la barra sea proporcional */
         [data-baseweb="tab"] button {
             padding-top: 12px !important;
             padding-bottom: 12px !important;
+        }
+
+        /* ── RESPONSIVE MÓVIL (≤768px) ── */
+        @media (max-width: 768px) {
+
+            /* Columnas de Streamlit colapsan a ancho completo */
+            [data-testid="column"] {
+                width: 100% !important;
+                flex: 1 1 100% !important;
+                min-width: 100% !important;
+            }
+
+            /* Tabs: texto más pequeño para que quepan */
+            [data-baseweb="tab"] button p {
+                font-size: 0.85rem !important;
+                font-weight: 600 !important;
+            }
+            [data-baseweb="tab"] button {
+                padding: 6px 8px !important;
+            }
+
+            /* Sidebar más angosto en móvil */
+            [data-testid="stSidebar"] {
+                min-width: 260px !important;
+                max-width: 260px !important;
+            }
+
+            /* Gráficas: altura mínima para que no queden aplastadas */
+            .js-plotly-plot {
+                min-height: 280px;
+            }
+
+            /* Métricas KPI: centradas */
+            [data-testid="metric-container"] {
+                text-align: center !important;
+            }
         }
         </style>
         """,
