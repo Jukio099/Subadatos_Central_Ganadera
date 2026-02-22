@@ -1,0 +1,28 @@
+# === Entorno virtual ===
+.venv/
+venv/
+
+# === Variables de entorno ===
+.env
+
+# === PDFs descargados (se regeneran con el ETL) ===
+pdfs/
+
+# === Cache de Python ===
+__pycache__/
+*.pyc
+*.pyo
+
+# === IDEs ===
+.vscode/
+.idea/
+
+# === Sistema ===
+.DS_Store
+Thumbs.db
+
+# === Artefactos temporales ===
+*.zip
+
+# === Datos generados por el ETL ===
+datos_subastas.csv

@@ -1,0 +1,51 @@
+name: ETL — Central Ganadera de Medellín
+
+on:
+  # Miércoles y jueves a las 06:00 hora Colombia (UTC-5) = 11:00 UTC
+  # - Miércoles: recoge boletín de subastas Tradicionales y Mulares (martes)
+  # - Jueves:    recoge boletín de subastas Especiales GYR (miércoles)
+  schedule:
+    - cron: "0 11 * * 3,4"
+  # Ejecución manual desde GitHub Actions → pestaña "Run workflow"
+  workflow_dispatch:
+
+jobs:
+  etl:
+    name: Ejecutar ETL ganadero
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Checkout del repositorio
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      # 2. Configurar Python 3.11 con caché de pip
+      - name: Configurar Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      # 3. Instalar dependencias
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      # 4. Ejecutar ETL (solo PDFs nuevos no existentes en Supabase)
+      - name: Ejecutar ETL
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: python etl/main.py --solo-nuevos
+
+      # 5. Resumen en la UI de GitHub Actions
+      - name: Publicar resumen
+        if: always()
+        run: |
+          echo "## 🐄 ETL Central Ganadera de Medellín" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Campo | Valor |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Fecha de ejecución | $(date -u '+%Y-%m-%d %H:%M UTC') |" >> $GITHUB_STEP_SUMMARY
+          echo "| Modo | Solo PDFs nuevos (--solo-nuevos) |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Revisa los logs del step **'Ejecutar ETL'** para ver el detalle de registros insertados y posibles errores." >> $GITHUB_STEP_SUMMARY

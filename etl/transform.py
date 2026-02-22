@@ -1,0 +1,480 @@
+"""
+transform.py
+============
+Paso 2 del ETL: lee los PDFs descargados y extrae los datos de cada lote
+de subasta en filas estructuradas.
+
+El PDF tiene columnas: Lote | Cant | Tipo | P.Total | P.Prom | Procedencia
+                        | Llegada | $Base kg | $Final kg | $Promedio | P.Total
+
+Autor: Tu nombre
+Fecha: 2026
+"""
+
+import pdfplumber
+import pandas as pd
+import re
+import os
+from datetime import datetime, date
+
+# Ruta raíz del proyecto (un nivel arriba de etl/)
+_DIR_SCRIPT = os.path.dirname(os.path.abspath(__file__))
+_DIR_PROYECTO = os.path.join(_DIR_SCRIPT, "..")
+
+# ─── MAPEO DE TIPOS DE ANIMAL ──────────────────────────────────────────────────
+# Códigos que aparecen en la columna "Tipo" del PDF
+TIPOS_ANIMAL = {
+    "HV": "Hembra de vientre",
+    "HL": "Hembra de levante",
+    "MC": "Macho de ceba",
+    "ML": "Macho de levante",
+    "AT": "Añojo toro",
+    "VH": "Vaca de horro",
+    "T2": "Toro de 2 dientes",
+    "R":  "Reproductor",
+    "M1": "Macho 1 diente",
+    "M3": "Macho 3 dientes",
+    "Y":  "Yegua",
+    "P2": "Potro 2 años",
+}
+
+# ─── NORMALIZACIÓN DE PROCEDENCIA (MUNICIPIOS) ────────────────────────────────
+# Corrige variantes del mismo municipio detectadas en los PDFs.
+# Clave = nombre tal cual aparece (en Title Case), Valor = nombre canónico.
+NORMALIZAR_PROCEDENCIA: dict[str, str] = {
+    # Variantes de "Entrada De Flaco" (zona de descarga de la Central Ganadera)
+    "Entra De Flaco":           "Entrada De Flaco",
+    "Entradad De Flaco":        "Entrada De Flaco",
+    "Entrada De Falco":         "Entrada De Flaco",
+    "Entrada De Gando Flaco":   "Entrada De Flaco",
+    # Variantes de "Entrada De Feria"
+    "Entra De Feria":           "Entrada De Feria",
+    "Entrada D Eferia":         "Entrada De Feria",
+    "Entrada De Ganado":        "Entrada De Feria",
+    # Tildes y variantes ortográficas
+    "Santa Bárbara":            "Santa Barbara",
+    "Sabana Larga":             "Sabanalarga",
+    "Caucasi":                  "Caucasia",
+    # Nombres truncados o abreviados
+    "San Pedro De Los":         "San Pedro De Los Milagros",
+    "San Pedro":                "San Pedro De Los Milagros",
+    "Santuario":                "El Santuario",
+    "Santa Rosa":               "Santa Rosa De Osos",
+    "Landazuri -":              "Landazuri",
+    "Victoria- Caldas":         "Victoria",
+}
+
+# ─── MESES EN ESPAÑOL ─────────────────────────────────────────────────────────
+_MESES_ES = {
+    "enero": 1, "febrero": 2, "marzo": 3, "abril": 4,
+    "mayo": 5, "junio": 6, "julio": 7, "agosto": 8,
+    "septiembre": 9, "octubre": 10, "noviembre": 11, "diciembre": 12,
+}
+
+_MESES_ABREV = {
+    "ene": 1, "feb": 2, "mar": 3, "abr": 4,
+    "may": 5, "jun": 6, "jul": 7, "ago": 8,
+    "sept": 9, "sep": 9, "oct": 10, "nov": 11, "dic": 12,
+}
+
+
+def normalizar_procedencia(nombre: str) -> str:
+    """Normaliza el nombre del municipio según el diccionario de correcciones."""
+    return NORMALIZAR_PROCEDENCIA.get(nombre, nombre)
+
+
+def limpiar_numero(texto: str) -> float | None:
+    """Convierte texto de número colombiano (1.234.567) a float."""
+    if not texto or str(texto).strip() in ("", "0", "-"):
+        return None
+    # Elimina puntos de miles y espacios, reemplaza coma decimal si la hubiera
+    limpio = str(texto).replace(".", "").replace(",", ".").replace(" ", "")
+    try:
+        return float(limpio)
+    except ValueError:
+        return None
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# EXTRACCIÓN DE METADATA DESDE EL CONTENIDO DEL PDF
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def extraer_metadata_del_pdf(texto_completo: str) -> dict:
+    """
+    Extrae fecha, tipo de subasta y número de boletín directamente
+    del encabezado del PDF (primeras líneas).
+    
+    Formatos de encabezado encontrados:
+    
+    2024:  RESULTADOS DE SUBASTA TRADICIONAL
+           BOLETÍN N° 01
+           09 DE ENERO DEL 2024
+           
+    2025:  RESULTADOS DE SUBASTA EQUINA N°1
+           BOLETÍN N° 25
+           28 DE MAYO DEL 2025
+
+    2026:  BOLETÍN
+           RESULTADOS DE SUBASTA TRADICIONAL
+           01
+           ENE. 6 DEL 2026
+    """
+    lineas = [l.strip() for l in texto_completo.split("\n") if l.strip()][:6]
+    
+    fecha = None
+    tipo_subasta = None
+    num_boletin = None
+    
+    # ── Buscar tipo de subasta ──
+    for linea in lineas:
+        upper = linea.upper()
+        if "RESULTADOS DE SUBASTA" in upper:
+            after = upper.replace("RESULTADOS DE SUBASTA", "").strip()
+            if "GYR" in after:
+                tipo_subasta = "Especial GYR"
+            elif "EQUINA" in after:
+                tipo_subasta = "Equina"
+            elif "MULAR" in after or "MULARES" in after:
+                tipo_subasta = "Mulares"
+            elif "ESPECIAL" in after:
+                tipo_subasta = "Especial"
+            elif "TRADICIONAL" in after or "COMERCIAL" in after:
+                tipo_subasta = "Tradicional"
+            elif after == "" or after.startswith("DE") or after.startswith("N"):
+                tipo_subasta = "Tradicional"
+            else:
+                tipo_subasta = "Tradicional"
+            break
+    
+    # ── Buscar número de boletín ──
+    for linea in lineas:
+        match_bol = re.search(r"BOLET[IÍ]N\s*N[°º]\s*(\d+)", linea, re.IGNORECASE)
+        if match_bol:
+            num_boletin = int(match_bol.group(1))
+            break
+    # Formato 2026: "BOLETÍN" sola en una línea, número en línea posterior
+    if num_boletin is None:
+        for i, linea in enumerate(lineas):
+            if re.match(r"^BOLET[IÍ]N$", linea, re.IGNORECASE) and i + 2 < len(lineas):
+                try:
+                    num_boletin = int(lineas[i + 2])
+                except ValueError:
+                    pass
+                break
+    
+    # ── Buscar fecha ──
+    texto_header = " ".join(lineas)
+    # Limpiar espacios dentro de palabras (ej: "N OVIEMBRE" → "NOVIEMBRE")
+    texto_header = re.sub(r'([A-ZÁÉÍÓÚÑ])\s([A-ZÁÉÍÓÚÑ]{2,})', r'\1\2', texto_header)
+    
+    # Formato A: "DD DE MES DEL YYYY" (2023-2025)
+    match_fecha = re.search(
+        r"(\d{1,2})\s+DE\s+([A-ZÁÉÍÓÚÑ]+)\s+DEL?\s+(\d{4})",
+        texto_header, re.IGNORECASE
+    )
+    if match_fecha:
+        dia_str, mes_nombre, anio_str = match_fecha.groups()
+        mes_num = _MESES_ES.get(mes_nombre.lower())
+        if mes_num:
+            try:
+                fecha = datetime(int(anio_str), mes_num, int(dia_str)).date()
+            except ValueError:
+                pass
+    
+    # Formato B: "MES. D DEL YYYY" (2026) — ej: "ENE. 6 DEL 2026"
+    if fecha is None:
+        match_fecha2 = re.search(
+            r"([A-ZÁÉÍÓÚÑ]{3,5})\.\s*(\d{1,2})\s+DEL?\s+(\d{4})",
+            texto_header, re.IGNORECASE
+        )
+        if match_fecha2:
+            mes_abrev, dia_str, anio_str = match_fecha2.groups()
+            mes_num = _MESES_ABREV.get(mes_abrev.lower().rstrip("."))
+            if mes_num:
+                try:
+                    fecha = datetime(int(anio_str), mes_num, int(dia_str)).date()
+                except ValueError:
+                    pass
+    
+    return {
+        "fecha": fecha,
+        "tipo_subasta": tipo_subasta or "Tradicional",
+        "num_boletin": num_boletin,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# FALLBACKS: extracción del nombre del archivo (si el PDF no tiene encabezado)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def extraer_fecha_de_nombre(nombre_archivo: str) -> date | None:
+    """Fallback: extrae fecha del nombre del archivo si el encabezado del PDF falla."""
+    # Format 1: 17_02_26_cg or 17_02_26 (DD_MM_YY optionally followed by _something)
+    match = re.search(r"[_\-](\d{2})_(\d{2})_(\d{2})(?:_|$|\.)", nombre_archivo)
+    if match:
+        dia, mes, anio_corto = match.groups()
+        try:
+            return datetime(2000 + int(anio_corto), int(mes), int(dia)).date()
+        except ValueError:
+            pass
+    
+    # Format 2: 17_de-mayo_-2024 or similar (DD_de-MES_-YYYY)
+    match2 = re.search(r"[_\-](\d{1,2})[_]*de[-_]*([a-zñáéíóú]{3,})[-_]*(\d{4})", nombre_archivo, re.IGNORECASE)
+    if match2:
+        dia_str, mes_nombre, anio_str = match2.groups()
+        mes_nombre = mes_nombre.lower().rstrip("-_")
+        # Probar mes completo
+        mes_num = _MESES_ES.get(mes_nombre)
+        # Probar abreviatura
+        if not mes_num:
+            # Limpiar posibles puntos o fragmentos
+            mes_abrev = mes_nombre[:3]
+            mes_num = _MESES_ABREV.get(mes_abrev)
+        
+        if mes_num:
+            try:
+                return datetime(int(anio_str), mes_num, int(dia_str)).date()
+            except ValueError:
+                pass
+
+    # Format 3: DD de MES (without year, assume current year)
+    match_fecha_no_year = re.search(r"[_\-](\d{1,2})[_\s\-]*de[_\s\-]*([a-zñáéíóú]{3,})", nombre_archivo, re.IGNORECASE)
+    # Format 4: DD_MM without year
+    match_fecha_num_no_year = re.search(r"[_\-](\d{1,2})[_\-](\d{1,2})(?:_|$|\.)", nombre_archivo)
+
+    if match_fecha_no_year:
+        dia_str, mes_nombre = match_fecha_no_year.groups()
+        mes_nombre = mes_nombre.lower().rstrip("-_ ")
+        mes_num = _MESES_ES.get(mes_nombre)
+        if not mes_num:
+            mes_abrev = mes_nombre[:3] if len(mes_nombre) >= 3 else mes_nombre
+            mes_num = _MESES_ABREV.get(mes_abrev)
+            
+        if mes_num:
+            try:
+                return datetime(datetime.now().year, mes_num, int(dia_str)).date()
+            except ValueError:
+                pass
+    elif match_fecha_num_no_year:
+        dia_str, mes_str = match_fecha_num_no_year.groups()
+        try:
+            return datetime(datetime.now().year, int(mes_str), int(dia_str)).date()
+        except ValueError:
+            pass
+
+    return None
+
+
+def extraer_numero_boletin(nombre_archivo: str) -> int | None:
+    """Fallback: extrae el número de boletín del nombre del archivo."""
+    match = re.match(r"^(\d+)_", nombre_archivo)
+    return int(match.group(1)) if match else None
+
+
+def extraer_tipo_subasta(nombre_archivo: str) -> str:
+    """Fallback: detecta tipo de subasta del nombre del archivo."""
+    nombre = nombre_archivo.lower()
+    if "gyr" in nombre:
+        return "Especial GYR"
+    elif "equina" in nombre:
+        return "Equina"
+    elif "mular" in nombre or "mulares" in nombre:
+        return "Mulares"
+    elif "tradicional" in nombre or "comercial" in nombre:
+        return "Tradicional"
+    elif "especial" in nombre:
+        return "Especial"
+    return "Tradicional"
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PARSEO DE DATOS DE LOTES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def parsear_lineas_pdf(texto_pagina: str) -> list[dict]:
+    """
+    El texto extraído del PDF viene como líneas de texto.
+    Esta función usa un patrón de regex para detectar filas con datos de lotes.
+    
+    Formato real del PDF (cada línea):
+    LOTE TIPO CANT P_TOTAL P_PROM PROCEDENCIA HORA $BASE_KG $FINAL_KG $PROMEDIO
+    
+    Ejemplo tradicional: 001 HV 1 384 384 SAN LUIS 08:22:02 a. m. 8.000 9.400 3.609.600
+    Ejemplo equina:      001 M3 1 0   0   YARUMAL  11:20:13 a. m. 0     0     2.900.000
+    """
+    filas = []
+    
+    patron = re.compile(
+        r'^\s*(\d{1,3})\s+'                         # Lote (001, 01, 1)
+        r'([A-Z][A-Z0-9]?)\s+'                      # Tipo (HV, ML, R, Y, T2, M1, etc.)
+        r'(\d+)\s+'                                  # Cantidad
+        r'([\d\.]+)\s+'                              # P.Total (peso total)
+        r'([\d\.]+)\s+'                              # P.Prom (peso promedio)
+        r'([A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ\s\-\.]+?)\s+'     # Procedencia/municipio
+        r'(\d{1,2}:\d{2}:\d{2}\s+[ap]\.\s*m\.)\s+'  # Hora (08:22:02 a. m.)
+        r'([\d\.]+)\s+'                              # $Base kg
+        r'([\d\.]+)\s+'                              # $Final kg
+        r'([\d\.]+)',                                 # $Promedio (precio total)
+        re.MULTILINE
+    )
+    
+    for m in patron.finditer(texto_pagina):
+        lote, tipo, cant, p_total, p_prom, procedencia, hora, base_kg, final_kg, precio_total = m.groups()
+        
+        tipo = tipo.strip()
+        if tipo not in TIPOS_ANIMAL:
+            continue
+            
+        filas.append({
+            "numero_lote": lote.strip(),
+            "tipo_codigo": tipo,
+            "cantidad_animales": int(cant),
+            "peso_total_kg": limpiar_numero(p_total),
+            "peso_promedio_kg": limpiar_numero(p_prom),
+            "procedencia": normalizar_procedencia(procedencia.strip().title()),
+            "hora_subasta": hora.strip(),
+            "precio_base_kg": limpiar_numero(base_kg),
+            "precio_final_kg": limpiar_numero(final_kg),
+        })
+    
+    return filas
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PROCESAMIENTO DE PDFs
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def procesar_pdf(ruta_pdf: str, metadata: dict = None) -> pd.DataFrame:
+    """
+    Lee un PDF de subasta y retorna un DataFrame con todos los lotes.
+    
+    Extrae fecha, tipo de subasta y número de boletín directamente
+    del contenido del PDF (más confiable que el nombre del archivo).
+    Usa el nombre del archivo solo como fallback.
+    """
+    nombre_archivo = os.path.basename(ruta_pdf)
+    todas_las_filas = []
+    
+    try:
+        with pdfplumber.open(ruta_pdf) as pdf:
+            texto_completo = ""
+            for pagina in pdf.pages:
+                texto = pagina.extract_text()
+                if texto:
+                    texto_completo += texto + "\n"
+            
+            # ── Extraer metadata del contenido del PDF (fuente de verdad) ──
+            meta_pdf = extraer_metadata_del_pdf(texto_completo)
+            
+            # Usar metadata del PDF, con fallback al nombre del archivo
+            fecha = meta_pdf["fecha"] or extraer_fecha_de_nombre(nombre_archivo)
+            tipo_subasta = meta_pdf["tipo_subasta"] if meta_pdf["tipo_subasta"] != "Tradicional" else extraer_tipo_subasta(nombre_archivo)
+            num_boletin = meta_pdf["num_boletin"] or extraer_numero_boletin(nombre_archivo)
+            
+            # ── Extraer datos de lotes ──
+            filas = parsear_lineas_pdf(texto_completo)
+            
+            for fila in filas:
+                fila["fecha_subasta"] = fecha
+                fila["tipo_subasta"] = tipo_subasta
+                fila["numero_boletin"] = num_boletin
+                fila["archivo_fuente"] = nombre_archivo
+            
+            todas_las_filas.extend(filas)
+    
+    except Exception as e:
+        print(f"  ❌ Error procesando {nombre_archivo}: {e}")
+        return pd.DataFrame()
+    
+    if not todas_las_filas:
+        print(f"  ⚠️  Sin datos en: {nombre_archivo}")
+        return pd.DataFrame()
+    
+    df = pd.DataFrame(todas_las_filas)
+    print(f"  ✅ {nombre_archivo}: {len(df)} lotes extraídos")
+    return df
+
+
+def procesar_todos_los_pdfs(carpeta_pdfs: str = None, boletines_meta: list = None) -> pd.DataFrame:
+    """
+    Procesa todos los PDFs en una carpeta y retorna un DataFrame unificado.
+    
+    Parámetros:
+    - carpeta_pdfs: carpeta donde están los PDFs descargados
+    - boletines_meta: lista de dicts con metadata (de extract.py), opcional
+    """
+    if carpeta_pdfs is None:
+        carpeta_pdfs = os.path.join(_DIR_PROYECTO, "pdfs")
+    if not os.path.exists(carpeta_pdfs):
+        raise FileNotFoundError(f"La carpeta '{carpeta_pdfs}' no existe. Ejecuta extract.py primero.")
+    
+    # Crear índice de metadata por nombre de archivo
+    meta_index = {}
+    if boletines_meta:
+        for b in boletines_meta:
+            meta_index[b["nombre_archivo"]] = b
+    
+    archivos_pdf = sorted([
+        f for f in os.listdir(carpeta_pdfs) if f.endswith(".pdf")
+    ])
+    
+    print(f"\n📂 Procesando {len(archivos_pdf)} PDFs en '{carpeta_pdfs}/'...")
+    
+    dfs = []
+    for nombre in archivos_pdf:
+        ruta = os.path.join(carpeta_pdfs, nombre)
+        meta = meta_index.get(nombre)
+        df = procesar_pdf(ruta, meta)
+        if not df.empty:
+            dfs.append(df)
+    
+    if not dfs:
+        print("⚠️  No se pudo extraer datos de ningún PDF.")
+        return pd.DataFrame()
+    
+    df_final = pd.concat(dfs, ignore_index=True)
+    
+    # Limpieza final: eliminar registros sin datos esenciales
+    df_final = df_final.dropna(subset=["precio_final_kg", "peso_total_kg"])
+    df_final = df_final[df_final["precio_final_kg"] > 0]
+    df_final = df_final[df_final["peso_total_kg"] > 0]
+    
+    # Filtros de calidad: eliminar errores obvios de parseo del PDF
+    n_antes = len(df_final)
+    df_final = df_final[df_final["peso_total_kg"] >= 10]       # Ningún lote pesa <10 kg
+    df_final = df_final[df_final["precio_final_kg"] <= 50000]  # >50k COP/kg es error de parseo
+    n_filtrados = n_antes - len(df_final)
+    if n_filtrados > 0:
+        print(f"  ⚠️  {n_filtrados} registros eliminados por datos sospechosos (errores de parseo)")
+    
+    # Reporte de fechas nulas
+    fechas_nulas = df_final["fecha_subasta"].isna().sum()
+    if fechas_nulas > 0:
+        print(f"  ⚠️  {fechas_nulas} registros sin fecha (no se pudo extraer del PDF ni del nombre)")
+    
+    print(f"\n✅ Total de lotes procesados: {len(df_final)}")
+    fechas_validas = df_final['fecha_subasta'].dropna()
+    if not fechas_validas.empty:
+        print(f"📅 Rango de fechas: {fechas_validas.min()} → {fechas_validas.max()}")
+    
+    return df_final
+
+
+# ─── EJECUCIÓN DIRECTA ────────────────────────────────────────────────────────
+if __name__ == "__main__":
+    df = procesar_todos_los_pdfs()
+    
+    if not df.empty:
+        # Vista previa
+        print("\n📋 Primeras 5 filas:")
+        print(df.head().to_string())
+        
+        print("\n📊 Estadísticas básicas:")
+        print(f"  Precio final por kg - Promedio: ${df['precio_final_kg'].mean():,.0f} COP/kg")
+        print(f"  Precio final por kg - Mínimo:   ${df['precio_final_kg'].min():,.0f} COP/kg")
+        print(f"  Precio final por kg - Máximo:   ${df['precio_final_kg'].max():,.0f} COP/kg")
+        
+        # Guardar CSV provisional
+        csv_path = os.path.join(_DIR_PROYECTO, "datos_subastas.csv")
+        df.to_csv(csv_path, index=False)
+        print(f"\n💾 Guardado como: {csv_path}")
