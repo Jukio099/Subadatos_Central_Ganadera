@@ -551,6 +551,80 @@ def tab_tendencias(df: pd.DataFrame):
     )
 
 
+# ── CONTACTO / FEEDBACK ───────────────────────────────────────
+def tab_contacto():
+    """Formulario de contacto y feedback — guarda en Supabase tabla `feedback`."""
+
+    CALIFICACIONES = {
+        "\u2b50 1 \u2014 Necesita mucha mejora": 1,
+        "\u2b50\u2b50 2 \u2014 Regular": 2,
+        "\u2b50\u2b50\u2b50 3 \u2014 Bueno": 3,
+        "\u2b50\u2b50\u2b50\u2b50 4 \u2014 Muy bueno": 4,
+        "\u2b50\u2b50\u2b50\u2b50\u2b50 5 \u2014 Excelente": 5,
+    }
+    TIPOS_USUARIO = [
+        "Ganadero / Productor",
+        "Comerciante / Comisionista",
+        "Analista / Investigador",
+        "Veterinario / Profesional del sector",
+        "Estudiante",
+        "Otro",
+    ]
+
+    col_form, col_info = st.columns([3, 2])
+
+    with col_form:
+        with st.form("form_feedback", clear_on_submit=True):
+            nombre    = st.text_input("\U0001f464 Nombre (opcional)")
+            email     = st.text_input("\U0001f4e7 Correo electr\u00f3nico (opcional)")
+            tipo      = st.selectbox("\U0001f3f7\ufe0f \u00bfC\u00f3mo describes tu perfil?", TIPOS_USUARIO)
+            cal_label = st.selectbox("\u2b50 Calificaci\u00f3n del dashboard", list(CALIFICACIONES.keys()), index=3)
+            mensaje   = st.text_area(
+                "\U0001f4ac Comentario o sugerencia",
+                placeholder="\u00bfQu\u00e9 funciona bien? \u00bfQu\u00e9 mejorar\u00edas? \u00bfQu\u00e9 dato te falta?",
+                height=130,
+            )
+            enviado = st.form_submit_button("Enviar feedback \u2192", use_container_width=True)
+
+        if enviado:
+            if not mensaje.strip():
+                st.warning("Por favor escribe un comentario antes de enviar.")
+            else:
+                try:
+                    load_dotenv()
+                    supa_url = os.environ.get("SUPABASE_URL") or st.secrets.get("SUPABASE_URL", "")
+                    supa_key = os.environ.get("SUPABASE_KEY") or st.secrets.get("SUPABASE_KEY", "")
+                    supabase_fb = create_client(supa_url, supa_key)
+                    supabase_fb.table("feedback").insert({
+                        "nombre":       nombre.strip() or None,
+                        "email":        email.strip()  or None,
+                        "tipo_usuario": tipo,
+                        "calificacion": CALIFICACIONES[cal_label],
+                        "mensaje":      mensaje.strip(),
+                    }).execute()
+                    st.success("\u2705 \u00a1Gracias por tu feedback! Lo tendremos muy en cuenta.")
+                    st.balloons()
+                except Exception as e:
+                    st.error(f"\u274c No se pudo guardar el feedback: {e}")
+
+    with col_info:
+        st.markdown(
+            """
+            <div style="background:#EDE7F6; border-left:4px solid #7B1FA2; border-radius:6px;
+                        padding:16px; margin-top:8px; font-size:0.88rem; color:#212121; line-height:1.7;">
+            <strong>\u00bfPor qu\u00e9 compartir tu correo?</strong><br><br>
+            Si nos dejas tu email te avisaremos de:<br>
+            \U0001f4ca Nuevos an\u00e1lisis de mercado<br>
+            \U0001f514 Alertas de precio por categor\u00eda<br>
+            \U0001f6e0\ufe0f Nuevas funciones del dashboard<br>
+            \U0001f4bc Servicios de inteligencia ganadera<br><br>
+            <em>No compartimos tu informaci\u00f3n con terceros.</em>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
 # ── MAIN ──────────────────────────────────────────────────────
 def main():
     # Cargar datos
@@ -670,6 +744,24 @@ def main():
     with tab7:
         st.header("🤖 Predictor de Precios (Próximamente)")
         st.info("Esta sección corresponde a la Fase 6 del proyecto. Aquí se integrará el modelo de Machine Learning (ej. Random Forest o LSTM) para predecir precios basándose en peso, procedencia y estacionalidad.")
+
+    # ── Sección de feedback — al pie de la página principal ──────
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown(
+        """
+        <div style="background: linear-gradient(135deg,#7B1FA2,#4A148C);
+                    border-radius:12px; padding:20px 28px; color:white;
+                    text-align:center; margin:12px 0 4px 0;">
+          <h3 style="margin:0 0 4px 0; color:white;">📬 ¿Cómo podemos mejorar?</h3>
+          <p style="margin:0; opacity:0.88; font-size:0.95rem;">
+            Tu opinión es clave. Déjanos un mensaje y si quieres, tu correo para mantenerte al tanto
+            de nuevas funciones y análisis de mercado.
+          </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    tab_contacto()
 
 if __name__ == "__main__":
     main()
