@@ -36,8 +36,8 @@ def main(solo_nuevos: bool = False):
     pdfs_nuevos = resultado_extract["nuevos"]
     pdfs_saltados = resultado_extract["saltados"]
 
-    if not boletines:
-        print(f"⏭️  {pdfs_saltados} PDFs ya existían en la BD. No hay novedades.")
+    if not boletines and pdfs_nuevos == 0:
+        print(f"⏭️  {pdfs_saltados} PDFs ya existían en la BD. No hay nuevos para procesar.")
         return
 
     # ── FASE 2: Transformación ──────────────────────────────────

@@ -472,10 +472,18 @@ def procesar_todos_los_pdfs(
     df_final = df_final[df_final["precio_final_kg"] > 0]
     df_final = df_final[df_final["peso_total_kg"] > 0]
     
+    # Diagnóstico previo a filtros — ayuda a detectar el umbral correcto
+    if "tipo_subasta" in df_final.columns:
+        for tipo_s, grupo in df_final.groupby("tipo_subasta"):
+            p_max = grupo["precio_final_kg"].max() if not grupo.empty else 0
+            print(f"  📊 {tipo_s}: {len(grupo)} lotes, precio_final_kg máx = {p_max:,.0f}")
+
     # Filtros de calidad: eliminar errores obvios de parseo del PDF
+    # Nota: subastas Equinas/Mulares reportan precio TOTAL del animal (millones COP),
+    # no precio por kg — por eso el límite es 500.000 en lugar de 50.000.
     n_antes = len(df_final)
-    df_final = df_final[df_final["peso_total_kg"] >= 10]       # Ningún lote pesa <10 kg
-    df_final = df_final[df_final["precio_final_kg"] <= 50000]  # >50k COP/kg es error de parseo
+    df_final = df_final[df_final["peso_total_kg"] >= 10]        # Ningún lote pesa <10 kg
+    df_final = df_final[df_final["precio_final_kg"] <= 500_000]  # >500k COP/kg es error de parseo
     n_filtrados = n_antes - len(df_final)
     if n_filtrados > 0:
         print(f"  ⚠️  {n_filtrados} registros eliminados por datos sospechosos (errores de parseo)")

@@ -281,23 +281,51 @@ def sidebar_filtros(df: pd.DataFrame) -> tuple[pd.DataFrame, str]:
     if df.empty:
         return df, modo_color
 
-    # 1. Rango de fechas (Default = Último año hasta la fecha máxima)
+    # 1. Rango de fechas — atajos rápidos + ajuste manual opcional
     fecha_max = df["fecha_subasta"].max().date()
-    # Si tenemos datos de 2026, restamos 365 días
-    fecha_default_min = fecha_max - timedelta(days=365)
-    
-    # Obtenemos la mínima global por seguridad
     fecha_min = df["fecha_subasta"].min().date()
 
-    if fecha_default_min < fecha_min:
-        fecha_default_min = fecha_min
-
-    fechas = st.sidebar.date_input(
-        "📅 Rango de Fechas",
-        value=(fecha_default_min, fecha_max),
-        min_value=fecha_min,
-        max_value=fecha_max
+    # ── Atajos de período ──
+    st.sidebar.markdown(
+        "<p style='font-size:0.82rem; color:#555; margin-bottom:2px;'>📅 <strong>Período</strong></p>",
+        unsafe_allow_html=True,
     )
+    PERIODOS = {
+        "Último mes":       30,
+        "Últimos 3 meses":  90,
+        "Últimos 6 meses":  180,
+        "Último año":       365,
+        "Todo el histórico": None,
+    }
+    periodo_sel = st.sidebar.radio(
+        "Período",
+        list(PERIODOS.keys()),
+        index=3,          # "Último año" por defecto
+        label_visibility="collapsed",
+    )
+
+    dias = PERIODOS[periodo_sel]
+    if dias is None:
+        fecha_inicio_auto = fecha_min
+    else:
+        fecha_inicio_auto = max(fecha_min, fecha_max - timedelta(days=dias))
+
+    # ── Ajuste manual fino (colapsado por defecto) ──
+    with st.sidebar.expander("🗓️ Ajuste manual de fechas", expanded=False):
+        fechas = st.date_input(
+            "Rango exacto",
+            value=(fecha_inicio_auto, fecha_max),
+            min_value=fecha_min,
+            max_value=fecha_max,
+            label_visibility="collapsed",
+        )
+    # Si el expander no fue modificado usa el rango del atajo
+    if not isinstance(fechas, (list, tuple)) or len(fechas) != 2:
+        fechas = (fecha_inicio_auto, fecha_max)
+    else:
+        # Si el usuario dejó ambas fechas en el valor automático, usar el atajo
+        if fechas[0] == fecha_inicio_auto and fechas[1] == fecha_max:
+            fechas = (fecha_inicio_auto, fecha_max)
 
     # 2. Tipo de subasta (Default = "Tradicional" primero)
     tipos_subasta = ["Tradicional", "Todos"] + sorted([t for t in df["tipo_subasta"].dropna().unique() if t != "Tradicional"])
@@ -334,6 +362,19 @@ def sidebar_filtros(df: pd.DataFrame) -> tuple[pd.DataFrame, str]:
         df_fil = df_fil[df_fil["procedencia"] == municipio]
 
     st.sidebar.markdown("---")
+    # Indicador visual del período activo
+    fecha_desde, fecha_hasta = fechas[0], fechas[1]
+    st.sidebar.markdown(
+        f"""
+        <div style="background:#E8F5E9; border-left:3px solid #1B5E20; border-radius:5px;
+                    padding:8px 10px; margin-bottom:8px; font-size:0.80rem; color:#1B5E20;">
+        📅 <strong>Período activo</strong><br>
+        Del <strong>{fecha_desde.strftime('%d/%m/%Y')}</strong>
+        al <strong>{fecha_hasta.strftime('%d/%m/%Y')}</strong>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
     st.sidebar.metric("Registros filtrados", f"{len(df_fil):,}")
 
     return df_fil, modo_color
