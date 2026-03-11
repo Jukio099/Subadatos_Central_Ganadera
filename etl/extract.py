@@ -4,6 +4,9 @@ extract.py
 Paso 1 del ETL: descarga todos los PDFs de subastas de la Central Ganadera
 de Medellín y los guarda localmente en la carpeta /pdfs.
 
+Ahora es incremental: antes de descargar un PDF consulta Supabase para ver
+si archivo_fuente ya existe en la tabla subastas. Si ya existe, lo salta.
+
 Autor: Tu nombre
 Fecha: 2026
 """
@@ -15,6 +18,10 @@ import time
 import re
 from datetime import datetime
 import sys
+from dotenv import load_dotenv
+from supabase import create_client, Client
+
+load_dotenv()
 
 # ─── CONFIGURACIÓN ────────────────────────────────────────────────────────────
 BASE_URL = "https://centralganadera.com/boletines/resultados-de-subasta/"
@@ -23,6 +30,16 @@ _DIR_SCRIPT = os.path.dirname(os.path.abspath(__file__))
 PDF_DIR = os.path.join(_DIR_SCRIPT, "..", "pdfs")
 MAX_PAGES = 15            # número máximo de páginas a recorrer (ajusta según crezca el sitio)
 DELAY = 1.5               # segundos de espera entre requests (para no sobrecargar el servidor)
+
+# ─── CLIENTE SUPABASE ─────────────────────────────────────────────────────────
+_supabase_url = os.environ.get("SUPABASE_URL", "")
+_supabase_key = os.environ.get("SUPABASE_KEY", "")
+
+try:
+    supabase: Client = create_client(_supabase_url, _supabase_key)
+except Exception as _e:
+    print(f"⚠️  No se pudo inicializar el cliente de Supabase: {_e}")
+    supabase = None  # type: ignore
 
 # ─── HEADERS ──────────────────────────────────────────────────────────────────
 # Simulamos un navegador real para evitar bloqueos
@@ -39,6 +56,35 @@ def crear_carpeta_pdfs():
     """Crea la carpeta /pdfs si no existe."""
     os.makedirs(PDF_DIR, exist_ok=True)
     print(f"📁 Carpeta de PDFs: '{PDF_DIR}/'")
+
+
+def ya_existe_en_bd(nombre_archivo: str) -> bool:
+    """
+    Consulta Supabase para verificar si un PDF ya fue procesado y cargado.
+
+    Busca el nombre del archivo en la columna archivo_fuente de la tabla subastas.
+    Si ya existe al menos un registro con ese archivo, retorna True para saltarlo.
+
+    Parámetros:
+        nombre_archivo: nombre del archivo PDF (ej. 'resultado_17_02_26_cg.pdf')
+
+    Retorna:
+        True si el archivo ya existe en la BD, False si es nuevo o hubo un error.
+    """
+    if supabase is None:
+        return False
+    try:
+        resultado = (
+            supabase.table("subastas")
+            .select("archivo_fuente")
+            .eq("archivo_fuente", nombre_archivo)
+            .limit(1)
+            .execute()
+        )
+        return len(resultado.data) > 0
+    except Exception as e:
+        print(f"  ⚠️  Error al consultar BD para {nombre_archivo}: {e}")
+        return False
 
 
 def obtener_links_pdf_de_pagina(url: str) -> list[dict]:
@@ -86,7 +132,8 @@ def obtener_links_pdf_de_pagina(url: str) -> list[dict]:
 
             # Extraer fecha del nombre del archivo
             # Format 1: 17_02_26_cg or 17_02_26 (DD_MM_YY optionally followed by _something)
-            match_fecha = re.search(r"_(\d{2})_(\d{2})_(\d{2})(?:_|$|\.)", href)
+            # Tolera sufijos como -1, -v2, -compressed, -cg después de la fecha
+            match_fecha = re.search(r"_(\d{2})_(\d{2})_(\d{2})(?:[_\-]|$|\.)", href)
             
             # Format 2: 17_de-mayo_-2024 or similar (DD_de-MES_-YYYY)
             match_fecha_txt = re.search(r"_(\d{1,2})[_]*de[-_]*([a-zñáéíóú]{3,})[-_]*(\d{4})", href, re.IGNORECASE)
@@ -195,13 +242,26 @@ def descargar_pdf(url: str, nombre_archivo: str) -> str | None:
         return None
 
 
-def extraer_todos_los_pdfs(max_pages: int = MAX_PAGES) -> list[dict]:
+def extraer_todos_los_pdfs(max_pages: int = MAX_PAGES) -> dict:
     """
-    Recorre todas las páginas del listado de boletines y descarga todos los PDFs.
-    Retorna una lista de dicts con la metadata de cada PDF descargado.
+    Recorre todas las páginas del listado de boletines y descarga solo los PDFs nuevos.
+
+    Para cada PDF encontrado consulta Supabase. Si archivo_fuente ya existe en la
+    tabla subastas, lo salta completamente. Solo descarga PDFs genuinamente nuevos.
+
+    Parámetros:
+        max_pages: número máximo de páginas a recorrer
+
+    Retorna:
+        dict con:
+          - boletines: lista de dicts con metadata de cada PDF nuevo descargado
+          - nuevos: cantidad de PDFs nuevos descargados
+          - saltados: cantidad de PDFs que ya existían en la BD
     """
     crear_carpeta_pdfs()
     todos_los_boletines = []
+    conteo_nuevos = 0
+    conteo_saltados = 0
 
     for num_pagina in range(1, max_pages + 1):
         # Construir URL de la página (página 1 no tiene /page/1/)
@@ -221,20 +281,36 @@ def extraer_todos_los_pdfs(max_pages: int = MAX_PAGES) -> list[dict]:
         print(f"  🔗 {len(links)} PDFs encontrados")
 
         for boletin in links:
-            ruta = descargar_pdf(boletin["url"], boletin["nombre_archivo"])
+            nombre_archivo = boletin["nombre_archivo"]
+
+            # Verificación incremental: consultar Supabase antes de descargar
+            if ya_existe_en_bd(nombre_archivo):
+                print(f"  ⏭️  Ya existe en BD: {nombre_archivo} (saltando)")
+                conteo_saltados += 1
+                continue
+
+            print(f"  ⬇️  Nuevo PDF encontrado: {nombre_archivo} (descargando)")
+            ruta = descargar_pdf(boletin["url"], nombre_archivo)
             if ruta:
                 boletin["ruta_local"] = ruta
                 todos_los_boletines.append(boletin)
+                conteo_nuevos += 1
 
         time.sleep(DELAY)  # Pausa entre páginas
 
-    print(f"\n✅ Total PDFs descargados/encontrados: {len(todos_los_boletines)}")
-    return todos_los_boletines
+    print(f"\n✅ PDFs nuevos descargados: {conteo_nuevos}")
+    print(f"⏭️  PDFs saltados (ya en BD):  {conteo_saltados}")
+    return {
+        "boletines": todos_los_boletines,
+        "nuevos": conteo_nuevos,
+        "saltados": conteo_saltados,
+    }
 
 
 # ─── EJECUCIÓN DIRECTA ────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    boletines = extraer_todos_los_pdfs()
+    resultado = extraer_todos_los_pdfs()
+    boletines = resultado["boletines"]
 
     # Mostrar resumen
     print("\n📊 Resumen:")
@@ -243,3 +319,4 @@ if __name__ == "__main__":
         tipos[b["tipo"]] = tipos.get(b["tipo"], 0) + 1
     for tipo, conteo in sorted(tipos.items()):
         print(f"   {tipo}: {conteo} subastas")
+    print(f"\n📊 Nuevos descargados: {resultado['nuevos']} | Saltados: {resultado['saltados']}")

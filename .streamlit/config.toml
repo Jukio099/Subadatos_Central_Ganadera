@@ -1,2 +1,14 @@
 [server]
 headless = true
+
+[theme]
+# Paleta de marca SubaDatos — verde ganadero + fondo limpio
+primaryColor        = "#1B5E20"   # Verde oscuro — botones, sliders, checkboxes
+backgroundColor     = "#FFFFFF"   # Fondo principal blanco
+secondaryBackgroundColor = "#F5F5F5"  # Fondo sidebar y cajas
+textColor           = "#212121"   # Texto principal casi-negro
+font                = "sans serif"
+
+[browser]
+# Desactiva telemetría de Streamlit (recomendado para proyectos profesionales)
+gatherUsageStats = false

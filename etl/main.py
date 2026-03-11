@@ -29,17 +29,20 @@ def main(solo_nuevos: bool = False):
     print("🐄  ETL CENTRAL GANADERA DE MEDELLÍN")
     print("=" * 60)
 
-    # ── FASE 1: Extracción ──────────────────────────────────────
+    # ── FASE 1: Extracción ──────────────────────────────────────────────
     print("\n📥 FASE 1: Descargando PDFs...")
-    boletines = extraer_todos_los_pdfs()
+    resultado_extract = extraer_todos_los_pdfs()
+    boletines = resultado_extract["boletines"]
+    pdfs_nuevos = resultado_extract["nuevos"]
+    pdfs_saltados = resultado_extract["saltados"]
 
     if not boletines:
-        print("❌ No se encontraron PDFs. Verifica tu conexión a internet.")
+        print(f"⏭️  {pdfs_saltados} PDFs ya existían en la BD. No hay novedades.")
         return
 
     # ── FASE 2: Transformación ──────────────────────────────────
     print("\n🔄 FASE 2: Procesando PDFs y extrayendo datos...")
-    df = procesar_todos_los_pdfs(boletines_meta=boletines)
+    df, pdfs_sin_fecha = procesar_todos_los_pdfs(boletines_meta=boletines)
 
     if df.empty:
         print("❌ No se pudieron extraer datos de los PDFs.")
@@ -53,19 +56,34 @@ def main(solo_nuevos: bool = False):
     print("\n🚀 FASE 3: Subiendo datos a Supabase...")
     stats = subir_a_supabase(df)
 
-    # ── REPORTE FINAL ───────────────────────────────────────────
+    # ── REPORTE FINAL ─────────────────────────────────────────────────────
     print("\n" + "=" * 60)
     print("📊 REPORTE FINAL DEL ETL")
     print("=" * 60)
-    print(f"📄 PDFs procesados:        {len(boletines)}")
-    print(f"✅ Registros procesados:   {stats.get('exitosos', 0)}")
-    print(f"❌ Registros fallidos:     {stats.get('fallidos', 0)}")
+    print(f"⬇️  PDFs nuevos procesados:   {pdfs_nuevos}")
+    print(f"⏭️  PDFs saltados (en BD):    {pdfs_saltados}")
+    print(f"✅ Registros nuevos insertados: {stats.get('exitosos', 0)}")
+    print(f"❌ Registros fallidos:         {stats.get('fallidos', 0)}")
     
     errores = set(stats.get('errores', []))
     if errores:
         print("   Errores detectados:")
         for err in errores:
             print(f"    - {err}")
+
+    # ── PDFs sin fecha — advertencia explícita y resumen en GitHub Actions ──
+    if pdfs_sin_fecha:
+        print(f"\n⚠️  PDFs sin fecha_subasta ({len(pdfs_sin_fecha)}) — requieren revisión manual:")
+        for nombre in pdfs_sin_fecha:
+            print(f"    - {nombre}")
+
+        github_summary = os.environ.get("GITHUB_STEP_SUMMARY")
+        if github_summary:
+            with open(github_summary, "a", encoding="utf-8") as f:
+                f.write("\n## ⚠️ PDFs sin fecha detectados\n\n")
+                f.write("Estos archivos no pudieron extraerse la fecha. Revisar manualmente:\n\n")
+                for nombre in pdfs_sin_fecha:
+                    f.write(f"- `{nombre}`\n")
 
     print("\n🎉 ETL completado exitosamente.")
 

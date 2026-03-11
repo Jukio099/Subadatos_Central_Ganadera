@@ -1,0 +1,35 @@
+name: Keep-alive — SubaDatos
+
+# Hace un ping a la app cada 25 minutos para evitar que Streamlit Cloud
+# la ponga a dormir por inactividad (el timeout de inactividad es ~7 días,
+# pero el cold-start tarda 30-60s — el ping evita ese retraso para visitantes).
+#
+# Alternativa sin costo de minutos de GitHub Actions: registrar la URL
+# en https://cron-job.org (gratis, intervalo mínimo 1 min) o en
+# https://uptimerobot.com (gratis, monitoreo cada 5 min).
+
+on:
+  schedule:
+    # Cada 25 minutos, todos los días
+    - cron: "*/25 * * * *"
+  # Permite lanzar manualmente desde la UI de GitHub Actions
+  workflow_dispatch:
+
+jobs:
+  ping:
+    name: Ping app Streamlit Cloud
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hacer ping a SubaDatos
+        # Reemplaza la URL con la de tu app en Streamlit Cloud
+        # Ejemplo: https://subadatos.streamlit.app
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            --max-time 30 \
+            "https://TU-APP.streamlit.app")
+          echo "HTTP status: $STATUS"
+          if [ "$STATUS" -ge 200 ] && [ "$STATUS" -lt 400 ]; then
+            echo "✅ App respondiendo correctamente."
+          else
+            echo "⚠️ App respondió con status $STATUS — puede estar iniciando."
+          fi

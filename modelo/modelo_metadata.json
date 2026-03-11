@@ -1,0 +1,114 @@
+{
+  "fecha_entrenamiento": "2026-02-23T00:18:31.727600",
+  "fuente": "Supabase → tabla subastas",
+  "motor": "GradientBoostingRegressor (scikit-learn) — por tipo",
+  "feature_cols": [
+    "peso_promedio_kg",
+    "tipo_codigo_num",
+    "cantidad_animales",
+    "fecha_num",
+    "hora_seg",
+    "dia_semana",
+    "mes",
+    "semana_anio",
+    "precio_mes_promedio"
+  ],
+  "modelos": [
+    {
+      "tipo": "Tradicional",
+      "registros": 45550,
+      "categorias": [
+        "AT",
+        "HL",
+        "HV",
+        "MC",
+        "ML",
+        "R",
+        "T2",
+        "VH"
+      ],
+      "mae": 1085.0153075660212,
+      "rmse": 1555.0628871148026,
+      "mape": 14.598645780073042,
+      "cv_mae_mean": 1087.4789894559067,
+      "cv_mae_std": 14.17374945009398,
+      "n_estimadores": 81,
+      "feature_cols": [
+        "peso_promedio_kg",
+        "tipo_codigo_num",
+        "cantidad_animales",
+        "fecha_num",
+        "hora_seg",
+        "dia_semana",
+        "mes",
+        "semana_anio",
+        "precio_mes_promedio"
+      ],
+      "feature_importances": {
+        "peso_promedio_kg": 0.5843183639220417,
+        "tipo_codigo_num": 0.02582307174889574,
+        "cantidad_animales": 0.020143136182213715,
+        "fecha_num": 0.0496435914952886,
+        "hora_seg": 0.035106018100543104,
+        "dia_semana": 0.0,
+        "mes": 0.001125526848033246,
+        "semana_anio": 0.009981662482071413,
+        "precio_mes_promedio": 0.27385862922091253
+      },
+      "artefactos": {
+        "modelo": "C:\\Users\\ASUS\\Documents\\Subadatos_ETL_Streamlit\\modelo\\modelo_Tradicional.pkl",
+        "scaler_X": "C:\\Users\\ASUS\\Documents\\Subadatos_ETL_Streamlit\\modelo\\scaler_X_Tradicional.pkl",
+        "scaler_y": "C:\\Users\\ASUS\\Documents\\Subadatos_ETL_Streamlit\\modelo\\scaler_y_Tradicional.pkl",
+        "encoder": "C:\\Users\\ASUS\\Documents\\Subadatos_ETL_Streamlit\\modelo\\encoder_tipo_Tradicional.pkl"
+      }
+    },
+    {
+      "tipo": "Especial GYR",
+      "registros": 3076,
+      "categorias": [
+        "AT",
+        "HL",
+        "HV",
+        "MC",
+        "ML",
+        "R",
+        "T2",
+        "VH"
+      ],
+      "mae": 2928.66716782447,
+      "rmse": 4353.899900214026,
+      "mape": 25.01153270625756,
+      "cv_mae_mean": 2697.086288379959,
+      "cv_mae_std": 94.20198994385723,
+      "n_estimadores": 52,
+      "feature_cols": [
+        "peso_promedio_kg",
+        "tipo_codigo_num",
+        "cantidad_animales",
+        "fecha_num",
+        "hora_seg",
+        "dia_semana",
+        "mes",
+        "semana_anio",
+        "precio_mes_promedio"
+      ],
+      "feature_importances": {
+        "peso_promedio_kg": 0.18256973598374576,
+        "tipo_codigo_num": 0.009825613693105643,
+        "cantidad_animales": 0.0730316421406044,
+        "fecha_num": 0.0302446279437353,
+        "hora_seg": 0.22741009111516655,
+        "dia_semana": 0.0017030019046930232,
+        "mes": 0.005835871059995562,
+        "semana_anio": 0.009629563433043832,
+        "precio_mes_promedio": 0.45974985272591
+      },
+      "artefactos": {
+        "modelo": "C:\\Users\\ASUS\\Documents\\Subadatos_ETL_Streamlit\\modelo\\modelo_Especial_GYR.pkl",
+        "scaler_X": "C:\\Users\\ASUS\\Documents\\Subadatos_ETL_Streamlit\\modelo\\scaler_X_Especial_GYR.pkl",
+        "scaler_y": "C:\\Users\\ASUS\\Documents\\Subadatos_ETL_Streamlit\\modelo\\scaler_y_Especial_GYR.pkl",
+        "encoder": "C:\\Users\\ASUS\\Documents\\Subadatos_ETL_Streamlit\\modelo\\encoder_tipo_Especial_GYR.pkl"
+      }
+    }
+  ]
+}

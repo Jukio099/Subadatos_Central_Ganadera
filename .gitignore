@@ -24,5 +24,12 @@ Thumbs.db
 # === Artefactos temporales ===
 *.zip
 
+# === Herramientas de IA / agentes (no pertenecen al repo) ===
+.claude/
+.trae/
+.windsurf/
+.agents/
+skills-lock.json
+
 # === Datos generados por el ETL ===
 datos_subastas.csv

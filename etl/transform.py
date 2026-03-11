@@ -119,7 +119,8 @@ def extraer_metadata_del_pdf(texto_completo: str) -> dict:
            01
            ENE. 6 DEL 2026
     """
-    lineas = [l.strip() for l in texto_completo.split("\n") if l.strip()][:6]
+    # Escaneamos más líneas porque el formato 2026 distribuye el encabezado en más renglones
+    lineas = [l.strip() for l in texto_completo.split("\n") if l.strip()][:10]
     
     fecha = None
     tipo_subasta = None
@@ -195,7 +196,26 @@ def extraer_metadata_del_pdf(texto_completo: str) -> dict:
                     fecha = datetime(int(anio_str), mes_num, int(dia_str)).date()
                 except ValueError:
                     pass
-    
+
+    # Formato C: "MES DD DEL YYYY" sin punto — ej: "ENE 6 DEL 2026", "ENERO 9 DEL 2026"
+    # Cubre variantes de 2026 y futuros PDFs donde el punto se omite
+    if fecha is None:
+        match_fecha3 = re.search(
+            r"\b([A-ZÁÉÍÓÚÑ]{3,10})\s+(\d{1,2})\s+DEL?\s+(\d{4})\b",
+            texto_header, re.IGNORECASE
+        )
+        if match_fecha3:
+            mes_str, dia_str, anio_str = match_fecha3.groups()
+            mes_str_clean = mes_str.lower()
+            mes_num = _MESES_ES.get(mes_str_clean)
+            if not mes_num:
+                mes_num = _MESES_ABREV.get(mes_str_clean[:3] if len(mes_str_clean) >= 3 else mes_str_clean)
+            if mes_num:
+                try:
+                    fecha = datetime(int(anio_str), mes_num, int(dia_str)).date()
+                except ValueError:
+                    pass
+
     return {
         "fecha": fecha,
         "tipo_subasta": tipo_subasta or "Tradicional",
@@ -210,7 +230,8 @@ def extraer_metadata_del_pdf(texto_completo: str) -> dict:
 def extraer_fecha_de_nombre(nombre_archivo: str) -> date | None:
     """Fallback: extrae fecha del nombre del archivo si el encabezado del PDF falla."""
     # Format 1: 17_02_26_cg or 17_02_26 (DD_MM_YY optionally followed by _something)
-    match = re.search(r"[_\-](\d{2})_(\d{2})_(\d{2})(?:_|$|\.)", nombre_archivo)
+    # Tolera sufijos como -1, -v2, -compressed después de la fecha
+    match = re.search(r"[_\-](\d{2})_(\d{2})_(\d{2})(?:[_\-]|$|\.)", nombre_archivo)
     if match:
         dia, mes, anio_corto = match.groups()
         try:
@@ -366,10 +387,14 @@ def procesar_pdf(ruta_pdf: str, metadata: dict = None) -> pd.DataFrame:
             # ── Extraer metadata del contenido del PDF (fuente de verdad) ──
             meta_pdf = extraer_metadata_del_pdf(texto_completo)
             
-            # Usar metadata del PDF, con fallback al nombre del archivo
+            # Usar metadata del PDF como fuente primaria; nombre del archivo como fallback
             fecha = meta_pdf["fecha"] or extraer_fecha_de_nombre(nombre_archivo)
             tipo_subasta = meta_pdf["tipo_subasta"] if meta_pdf["tipo_subasta"] != "Tradicional" else extraer_tipo_subasta(nombre_archivo)
             num_boletin = meta_pdf["num_boletin"] or extraer_numero_boletin(nombre_archivo)
+
+            # Fallo explícito — nunca silencioso — si la fecha no pudo extraerse de ninguna fuente
+            if fecha is None:
+                print(f"  ⚠️ FECHA NO ENCONTRADA: {nombre_archivo} — revisar manualmente")
             
             # ── Extraer datos de lotes ──
             filas = parsear_lineas_pdf(texto_completo)
@@ -395,13 +420,21 @@ def procesar_pdf(ruta_pdf: str, metadata: dict = None) -> pd.DataFrame:
     return df
 
 
-def procesar_todos_los_pdfs(carpeta_pdfs: str = None, boletines_meta: list = None) -> pd.DataFrame:
+def procesar_todos_los_pdfs(
+    carpeta_pdfs: str = None,
+    boletines_meta: list = None,
+) -> tuple[pd.DataFrame, list[str]]:
     """
-    Procesa todos los PDFs en una carpeta y retorna un DataFrame unificado.
-    
+    Procesa todos los PDFs en una carpeta y retorna un DataFrame unificado
+    junto con la lista de archivos que quedaron sin fecha.
+
     Parámetros:
     - carpeta_pdfs: carpeta donde están los PDFs descargados
     - boletines_meta: lista de dicts con metadata (de extract.py), opcional
+
+    Retorna:
+    - (df_final, pdfs_sin_fecha): DataFrame con todos los lotes y lista de
+      nombres de archivo que no tienen fecha_subasta.
     """
     if carpeta_pdfs is None:
         carpeta_pdfs = os.path.join(_DIR_PROYECTO, "pdfs")
@@ -430,7 +463,7 @@ def procesar_todos_los_pdfs(carpeta_pdfs: str = None, boletines_meta: list = Non
     
     if not dfs:
         print("⚠️  No se pudo extraer datos de ningún PDF.")
-        return pd.DataFrame()
+        return pd.DataFrame(), []
     
     df_final = pd.concat(dfs, ignore_index=True)
     
@@ -447,22 +480,35 @@ def procesar_todos_los_pdfs(carpeta_pdfs: str = None, boletines_meta: list = Non
     if n_filtrados > 0:
         print(f"  ⚠️  {n_filtrados} registros eliminados por datos sospechosos (errores de parseo)")
     
-    # Reporte de fechas nulas
-    fechas_nulas = df_final["fecha_subasta"].isna().sum()
-    if fechas_nulas > 0:
-        print(f"  ⚠️  {fechas_nulas} registros sin fecha (no se pudo extraer del PDF ni del nombre)")
-    
+    # Reporte de PDFs sin fecha — detallado por archivo para detectar fallos silenciosos
+    pdfs_sin_fecha: list[str] = []
+    if "fecha_subasta" in df_final.columns:
+        pdfs_sin_fecha = (
+            df_final[df_final["fecha_subasta"].isna()]["archivo_fuente"]
+            .unique()
+            .tolist()
+        )
+    if pdfs_sin_fecha:
+        print(f"\n⚠️  {len(pdfs_sin_fecha)} PDF(s) sin fecha_subasta — revisar manualmente:")
+        for nombre in pdfs_sin_fecha:
+            n_lotes = (df_final["archivo_fuente"] == nombre).sum()
+            print(f"    - {nombre} ({n_lotes} lotes afectados)")
+    else:
+        fechas_nulas = df_final["fecha_subasta"].isna().sum() if "fecha_subasta" in df_final.columns else 0
+        if fechas_nulas > 0:
+            print(f"  ⚠️  {fechas_nulas} registros sin fecha (no se pudo extraer del PDF ni del nombre)")
+
     print(f"\n✅ Total de lotes procesados: {len(df_final)}")
     fechas_validas = df_final['fecha_subasta'].dropna()
     if not fechas_validas.empty:
         print(f"📅 Rango de fechas: {fechas_validas.min()} → {fechas_validas.max()}")
-    
-    return df_final
+
+    return df_final, pdfs_sin_fecha
 
 
 # ─── EJECUCIÓN DIRECTA ────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    df = procesar_todos_los_pdfs()
+    df, _ = procesar_todos_los_pdfs()
     
     if not df.empty:
         # Vista previa

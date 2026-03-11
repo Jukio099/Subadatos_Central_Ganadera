@@ -43,15 +43,23 @@ COLOR_SEQUENCE = [
 import plotly.io as pio
 
 def aplicar_tema_plotly(modo: str):
-    """Actualiza la plantilla de Plotly en caliente basado en el sidebar"""
-    color_fondo = "#FFFFFF" if modo == "Claro" else "#F5F5F5"
-    color_paper = "#FFFFFF" if modo == "Claro" else "#FFFFFF"  
+    """Registra la plantilla de Plotly según el modo de apariencia.
+
+    Solo reconstruye el objeto Template cuando el modo cambia — evita recrearlo
+    en cada render (lo que ocurría antes y costaba ~300ms por interacción).
+    """
+    clave = "ganadero_claro" if "Claro" in modo else "ganadero_oscuro"
+    # Si ya está registrado como default, no hacer nada
+    if pio.templates.default == clave:
+        return
+
+    color_fondo = "#FFFFFF" if "Claro" in modo else "#F5F5F5"
     color_texto = "#212121"
-    
-    TEMPLATE = go.layout.Template()
-    TEMPLATE.layout = go.Layout(
+
+    tmpl = go.layout.Template()
+    tmpl.layout = go.Layout(
         font=dict(family="Google Sans, Roboto, sans-serif", color=color_texto),
-        paper_bgcolor=color_paper,
+        paper_bgcolor="#FFFFFF",
         plot_bgcolor=color_fondo,
         colorway=COLOR_SEQUENCE,
         title=dict(font=dict(size=16, color="#1B5E20", family="Google Sans")),
@@ -64,11 +72,11 @@ def aplicar_tema_plotly(modo: str):
         margin=dict(l=40, r=20, t=60, b=40),
         hovermode="x unified",
     )
-    pio.templates["ganadero"] = TEMPLATE
-    pio.templates.default = "ganadero"
+    pio.templates[clave] = tmpl
+    pio.templates.default = clave
 
 # ── CARGA DE DATOS ────────────────────────────────────────────
-@st.cache_data(ttl=3600)  # Cachear 1 hora
+@st.cache_data(ttl=60 * 60 * 24)  # 24 horas — datos se actualizan semanalmente
 def cargar_datos() -> pd.DataFrame:
     """Carga todos los datos de Supabase y los retorna como DataFrame."""
     load_dotenv()
@@ -186,8 +194,10 @@ def grafica_barras_municipio(df: pd.DataFrame, top_n: int = 15) -> go.Figure:
     return fig
 
 def grafica_volumen_semanal(df: pd.DataFrame) -> go.Figure:
-    df_temp = df.copy()
-    df_temp["semana"] = pd.to_datetime(df_temp["fecha_subasta"]).dt.to_period("W").dt.start_time
+    # assign() evita df.copy() — no muta el df original y es más rápido
+    df_temp = df.assign(
+        semana=pd.to_datetime(df["fecha_subasta"]).dt.to_period("W").dt.start_time
+    )
     df_vol = (
         df_temp.groupby("semana")["precio_total_cop"]
         .sum()
@@ -209,12 +219,12 @@ def grafica_volumen_semanal(df: pd.DataFrame) -> go.Figure:
 
 def grafica_estacionalidad(df: pd.DataFrame) -> go.Figure:
     # Mapeo manual para forzar meses en español por si el server (Streamlit Cloud) está en inglés
-    meses_es = {1:"Ene", 2:"Feb", 3:"Mar", 4:"Abr", 5:"May", 6:"Jun", 
+    meses_es = {1:"Ene", 2:"Feb", 3:"Mar", 4:"Abr", 5:"May", 6:"Jun",
                 7:"Jul", 8:"Ago", 9:"Sep", 10:"Oct", 11:"Nov", 12:"Dic"}
-    
-    df_temp = df.copy()
-    df_temp["mes_num"] = pd.to_datetime(df_temp["fecha_subasta"]).dt.month
-    df_temp["mes_nombre"] = df_temp["mes_num"].map(meses_es)
+
+    # assign() en cadena — evita df.copy() + mutación
+    mes_num = pd.to_datetime(df["fecha_subasta"]).dt.month
+    df_temp = df.assign(mes_num=mes_num, mes_nombre=mes_num.map(meses_es))
     
     df_heat = (
         df_temp.groupby(["mes_nombre", "tipo_codigo"])["precio_final_kg"]
@@ -239,17 +249,25 @@ def grafica_estacionalidad(df: pd.DataFrame) -> go.Figure:
     fig.update_traces(texttemplate="$%{z:,.0f}")
     return fig
 
+@st.cache_data(show_spinner=False)
+def _cargar_logo(logo_path: str):
+    """Carga el logo una sola vez y lo cachea — evita I/O de disco en cada render."""
+    try:
+        from PIL import Image
+        return Image.open(logo_path)
+    except Exception:
+        return None
+
+
 # ── SIDEBAR CON FILTROS GLOBALES ──────────────────────────────
 def sidebar_filtros(df: pd.DataFrame) -> tuple[pd.DataFrame, str]:
     logo_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "logo.webp")
     if os.path.exists(logo_path):
-        # Usamos columnas para centrar la imagen y reducirla al ~75% de ancho (1/8 | 6/8 | 1/8)
         col1, col2, col3 = st.sidebar.columns([1, 6, 1])
-        try:
-            from PIL import Image
-            img = Image.open(logo_path)
+        img = _cargar_logo(logo_path)
+        if img is not None:
             col2.image(img, use_column_width=True)
-        except ImportError:
+        else:
             col2.image(logo_path, use_column_width=True)
             
     st.sidebar.markdown(
@@ -257,8 +275,8 @@ def sidebar_filtros(df: pd.DataFrame) -> tuple[pd.DataFrame, str]:
         unsafe_allow_html=True
     )
     
-    # Botón Modo Claro / Oscuro
-    modo_color = st.sidebar.radio("Apariencia", ["Oscuro (Estándar)", "Claro"])
+    # Botón Modo Claro / Oscuro — "Claro" es el default (más profesional)
+    modo_color = st.sidebar.radio("Apariencia", ["Claro", "Oscuro"])
     
     if df.empty:
         return df, modo_color
@@ -455,8 +473,10 @@ def tab_ultima_subasta(df: pd.DataFrame):
 
     # Gráfica 4: Precio vs peso promedio por animal
     with c4:
-        df_sub["peso_promedio"] = df_sub["peso_total_kg"] / df_sub["cantidad_animales"].replace(0, pd.NA)
-        df_sub = df_sub.dropna(subset=["peso_promedio"])
+        # assign() para no mutar df_sub que se comparte entre gráficas de esta tab
+        df_sub = df_sub.assign(
+            peso_promedio=df_sub["peso_total_kg"] / df_sub["cantidad_animales"].replace(0, pd.NA)
+        ).dropna(subset=["peso_promedio"])
         fig4 = px.scatter(
             df_sub, x="peso_promedio", y="precio_final_kg",
             color="tipo_codigo", color_discrete_map=COLORES,
@@ -663,14 +683,14 @@ def main():
     st.markdown(
         """
         <style>
-        /* ── TABS: texto grande en desktop ── */
+        /* ── TABS: tamaño legible en desktop ── */
         [data-baseweb="tab"] button p {
-            font-size: 2rem !important;
+            font-size: 1rem !important;
             font-weight: 600 !important;
         }
         [data-baseweb="tab"] button {
-            padding-top: 12px !important;
-            padding-bottom: 12px !important;
+            padding-top: 10px !important;
+            padding-bottom: 10px !important;
         }
 
         /* ── RESPONSIVE MÓVIL (≤768px) ── */
