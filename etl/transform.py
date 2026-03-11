@@ -312,53 +312,116 @@ def extraer_tipo_subasta(nombre_archivo: str) -> str:
 # PARSEO DE DATOS DE LOTES
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def parsear_lineas_pdf(texto_pagina: str) -> list[dict]:
+def parsear_lineas_pdf(texto_pagina: str, nombre_archivo: str = "") -> list[dict]:
     """
-    El texto extraído del PDF viene como líneas de texto.
-    Esta función usa un patrón de regex para detectar filas con datos de lotes.
-    
-    Formato real del PDF (cada línea):
-    LOTE TIPO CANT P_TOTAL P_PROM PROCEDENCIA HORA $BASE_KG $FINAL_KG $PROMEDIO
-    
+    Extrae filas de datos de lotes del texto bruto del PDF.
+
+    Estrategia en cascada:
+    1. Regex ESTRICTO  (requiere campo de hora HH:MM:SS a/p. m.)
+    2. Regex FALLBACK  (sin campo de hora — para PDFs con layout distinto)
+    3. Diagnóstico     (imprime las 5 primeras líneas candidatas para debug)
+
+    Formato esperado por el ESTRICTO:
+      LOTE TIPO CANT P_TOTAL P_PROM PROCEDENCIA HH:MM:SS a.m. BASE_KG FINAL_KG TOTAL
+
     Ejemplo tradicional: 001 HV 1 384 384 SAN LUIS 08:22:02 a. m. 8.000 9.400 3.609.600
     Ejemplo equina:      001 M3 1 0   0   YARUMAL  11:20:13 a. m. 0     0     2.900.000
     """
-    filas = []
-    
-    patron = re.compile(
-        r'^\s*(\d{1,3})\s+'                         # Lote (001, 01, 1)
-        r'([A-Z][A-Z0-9]?)\s+'                      # Tipo (HV, ML, R, Y, T2, M1, etc.)
+    filas: list[dict] = []
+
+    # ── 1. REGEX ESTRICTO (con campo hora) ────────────────────────────────────
+    _PATRON_ESTRICTO = re.compile(
+        r'^\s*(\d{1,3})\s+'                         # Lote
+        r'([A-Z][A-Z0-9]?)\s+'                      # Tipo (HV, ML, R…)
         r'(\d+)\s+'                                  # Cantidad
-        r'([\d\.]+)\s+'                              # P.Total (peso total)
-        r'([\d\.]+)\s+'                              # P.Prom (peso promedio)
-        r'([A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ\s\-\.]+?)\s+'     # Procedencia/municipio
-        r'(\d{1,2}:\d{2}:\d{2}\s+[ap]\.\s*m\.)\s+'  # Hora (08:22:02 a. m.)
-        r'([\d\.]+)\s+'                              # $Base kg
-        r'([\d\.]+)\s+'                              # $Final kg
-        r'([\d\.]+)',                                 # $Promedio (precio total)
-        re.MULTILINE
+        r'([\d\.]+)\s+'                              # P.Total (kg)
+        r'([\d\.]+)\s+'                              # P.Prom (kg)
+        r'([A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ\s\-\.]+?)\s+'     # Procedencia
+        r'(\d{1,2}:\d{2}:\d{2}\s+[ap]\.\s*m\.)\s+'  # Hora HH:MM:SS a/p.m.
+        r'([\d\.]+)\s+'                              # $Base/kg
+        r'([\d\.]+)\s+'                              # $Final/kg
+        r'([\d\.]+)',                                 # $Total
+        re.MULTILINE,
     )
-    
-    for m in patron.finditer(texto_pagina):
-        lote, tipo, cant, p_total, p_prom, procedencia, hora, base_kg, final_kg, precio_total = m.groups()
-        
+
+    for m in _PATRON_ESTRICTO.finditer(texto_pagina):
+        lote, tipo, cant, p_total, p_prom, procedencia, hora, base_kg, final_kg, _ = m.groups()
         tipo = tipo.strip()
         if tipo not in TIPOS_ANIMAL:
             continue
-            
         filas.append({
-            "numero_lote": lote.strip(),
-            "tipo_codigo": tipo,
+            "numero_lote":       lote.strip(),
+            "tipo_codigo":       tipo,
             "cantidad_animales": int(cant),
-            "peso_total_kg": limpiar_numero(p_total),
-            "peso_promedio_kg": limpiar_numero(p_prom),
-            "procedencia": normalizar_procedencia(procedencia.strip().title()),
-            "hora_subasta": hora.strip(),
-            "precio_base_kg": limpiar_numero(base_kg),
-            "precio_final_kg": limpiar_numero(final_kg),
+            "peso_total_kg":     limpiar_numero(p_total),
+            "peso_promedio_kg":  limpiar_numero(p_prom),
+            "procedencia":       normalizar_procedencia(procedencia.strip().title()),
+            "hora_subasta":      hora.strip(),
+            "precio_base_kg":    limpiar_numero(base_kg),
+            "precio_final_kg":   limpiar_numero(final_kg),
         })
-    
+
+    if filas:
+        return filas
+
+    # ── 2. REGEX FALLBACK (sin campo hora) ────────────────────────────────────
+    # Cubre PDFs donde la columna de hora está ausente o en formato diferente.
+    _PATRON_FALLBACK = re.compile(
+        r'^\s*(\d{1,3})\s+'                         # Lote
+        r'([A-Z][A-Z0-9]?)\s+'                      # Tipo
+        r'(\d+)\s+'                                  # Cantidad
+        r'([\d\.]+)\s+'                              # P.Total
+        r'([\d\.]+)\s+'                              # P.Prom
+        r'([A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ\s\-\.]{2,30}?)\s+'# Procedencia (más corta)
+        r'([\d\.]+)\s+'                              # $Base/kg o $Final/kg
+        r'([\d\.]+)\s+'                              # $Final/kg o $Total
+        r'([\d\.]+)',                                 # $Total
+        re.MULTILINE,
+    )
+
+    candidatos_fallback = 0
+    for m in _PATRON_FALLBACK.finditer(texto_pagina):
+        lote, tipo, cant, p_total, p_prom, procedencia, base_kg, final_kg, _ = m.groups()
+        tipo = tipo.strip()
+        if tipo not in TIPOS_ANIMAL:
+            continue
+        candidatos_fallback += 1
+        filas.append({
+            "numero_lote":       lote.strip(),
+            "tipo_codigo":       tipo,
+            "cantidad_animales": int(cant),
+            "peso_total_kg":     limpiar_numero(p_total),
+            "peso_promedio_kg":  limpiar_numero(p_prom),
+            "procedencia":       normalizar_procedencia(procedencia.strip().title()),
+            "hora_subasta":      None,   # No disponible en este formato
+            "precio_base_kg":    limpiar_numero(base_kg),
+            "precio_final_kg":   limpiar_numero(final_kg),
+        })
+
+    if filas:
+        archivo = nombre_archivo or "PDF"
+        print(f"    ℹ️  {archivo}: regex fallback (sin hora) → {len(filas)} lotes")
+        return filas
+
+    # ── 3. DIAGNÓSTICO (ambos regex fallaron) ─────────────────────────────────
+    # Imprime las primeras líneas que *parecen* candidatos (empiezan con número)
+    # para que sea fácil detectar qué formato tiene el PDF problemático.
+    if nombre_archivo:
+        lineas_candidatas = [
+            l for l in texto_pagina.splitlines()
+            if re.match(r'^\s*\d{1,3}\s+[A-Z]', l.strip())
+        ]
+        if lineas_candidatas:
+            print(f"    🔍 {nombre_archivo}: {len(lineas_candidatas)} líneas candidatas "
+                  f"no parseadas. Primeras 3:")
+            for linea in lineas_candidatas[:3]:
+                print(f"       > {linea.strip()[:120]}")
+        else:
+            print(f"    🔍 {nombre_archivo}: sin líneas candidatas (¿tabla en imagen/columnas?)")
+
     return filas
+
+
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -397,7 +460,7 @@ def procesar_pdf(ruta_pdf: str, metadata: dict = None) -> pd.DataFrame:
                 print(f"  ⚠️ FECHA NO ENCONTRADA: {nombre_archivo} — revisar manualmente")
             
             # ── Extraer datos de lotes ──
-            filas = parsear_lineas_pdf(texto_completo)
+            filas = parsear_lineas_pdf(texto_completo, nombre_archivo=nombre_archivo)
             
             for fila in filas:
                 fila["fecha_subasta"] = fecha
