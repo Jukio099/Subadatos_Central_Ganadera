@@ -22,6 +22,25 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# ── CONFIG PLOTLY: sin zoom accidental, doble clic resetea ───
+PLOTLY_CONFIG = {
+    "scrollZoom": False,          # Evita zoom con scroll del mouse/trackpad
+    "doubleClick": "reset+autosize",  # Doble clic vuelve a la vista completa
+    "displayModeBar": "hover",    # Barra de herramientas solo al pasar el cursor
+}
+
+# ── GLOSARIO DE TIPOS DE ANIMAL ───────────────────────────────
+GLOSARIO_TIPOS = {
+    "MC": "Macho Ceba — toro gordo listo para sacrificio",
+    "ML": "Macho Levante — novillo joven en crecimiento",
+    "HV": "Hembra Vientre — vaca para cría o gestante",
+    "HL": "Hembra Levante — novilla joven en crecimiento",
+    "AT": "Añojo / Ternero — ternero menor de 1 año",
+    "VH": "Vaca Horra — vaca sin cría y sin preñez",
+    "T2": "Toro — semental reproductor adulto",
+    "R":  "Reproductor — macho de alto valor genético",
+}
+
 # ── PALETA DE COLORES FIJOS ─────────────────────────────────
 COLORES = {
     "HV": "#1B5E20",   
@@ -70,7 +89,8 @@ def aplicar_tema_plotly(modo: str):
             font=dict(size=11)
         ),
         margin=dict(l=40, r=20, t=60, b=40),
-        hovermode="x unified",
+        hovermode="closest",   # Funciona mejor en táctil (sin hover real en móvil)
+        dragmode=False,        # Deshabilita drag-zoom: evita zoom accidental al tocar
     )
     pio.templates[clave] = tmpl
     pio.templates.default = clave
@@ -165,7 +185,7 @@ def grafica_serie_tiempo(df: pd.DataFrame) -> go.Figure:
         line=dict(width=2.5),
         hovertemplate="<b>%{x}</b><br>Precio: $%{y:,.0f} COP/kg<extra></extra>"
     )
-    fig.update_xaxes(rangeslider_visible=True, title="Fecha")
+    fig.update_xaxes(rangeslider_visible=False, title="Fecha")
     fig.update_yaxes(title="Precio promedio (COP/kg)")
     return fig
 
@@ -334,14 +354,20 @@ def sidebar_filtros(df: pd.DataFrame) -> tuple[pd.DataFrame, str]:
     # 3. Tipo de animal (MC y ML por defecto)
     tipos_animal = sorted(df["tipo_codigo"].dropna().unique().tolist())
     defaults = [t for t in ["MC", "ML"] if t in tipos_animal]
-    if not defaults: 
+    if not defaults:
         defaults = tipos_animal
-        
+
     tipos_sel = st.sidebar.multiselect(
         "🐄 Tipo de Animal",
         tipos_animal,
         default=defaults
     )
+
+    # Glosario de tipos — expandible para no saturar el sidebar
+    with st.sidebar.expander("❓ ¿Qué significa cada tipo?"):
+        for codigo, descripcion in GLOSARIO_TIPOS.items():
+            if codigo in tipos_animal:
+                st.markdown(f"**{codigo}** — {descripcion}")
 
     # 4. Municipio
     municipios = ["Todos"] + sorted(df["procedencia"].dropna().unique().tolist())
@@ -437,8 +463,8 @@ def info_box(texto: str):
         ">
         💡 {texto}
         <br><span style="font-size:0.80rem; color:#6A1B9A; margin-top:6px; display:block;">
-        🔍 <em>Tip: pasa el cursor sobre la gráfica y haz clic en el ícono <strong>↗</strong>
-        (esquina superior derecha) para verla en pantalla completa.</em>
+        🔍 <em>Tip: si la gráfica se acercó sin querer, haz <strong>doble clic</strong> sobre ella para volver a la vista completa.
+        Usa el ícono <strong>↗</strong> (esquina superior derecha) para pantalla completa.</em>
         </span>
         </div>
         """,
@@ -479,7 +505,7 @@ def tab_ultima_subasta(df: pd.DataFrame):
         )
         fig1.update_coloraxes(showscale=False)
         fig1.update_traces(hovertemplate="<b>%{y}</b><br>Animales: %{x:,}<extra></extra>")
-        st.plotly_chart(fig1, use_container_width=True)
+        st.plotly_chart(fig1, use_container_width=True, config=PLOTLY_CONFIG)
         info_box("<strong>Animales por categoría:</strong> Total de cabezas subastadas por tipo en esta sesión. Muestra qué clase de ganado dominó la oferta del día.")
 
     # Gráfica 2: Precio por orden de lote
@@ -494,7 +520,7 @@ def tab_ultima_subasta(df: pd.DataFrame):
         )
         fig2.update_traces(line=dict(width=2.5))
         fig2.update_traces(hovertemplate="<b>Lote %{x}</b><br>Precio: $%{y:,.0f} COP/kg<extra></extra>")
-        st.plotly_chart(fig2, use_container_width=True)
+        st.plotly_chart(fig2, use_container_width=True, config=PLOTLY_CONFIG)
         info_box("<strong>Precio por orden de lote:</strong> Muestra si el precio subió o bajó a medida que avanzó la subasta. Una pendiente positiva indica que el mercado 'se calentó'; negativa, que la oferta superó la demanda hacia el final.")
 
     c3, c4 = st.columns(2)
@@ -509,7 +535,7 @@ def tab_ultima_subasta(df: pd.DataFrame):
             opacity=0.8, trendline="ols",
         )
         fig3.update_traces(hovertemplate="<b>%{x} animales</b><br>Precio: $%{y:,.0f} COP/kg<extra></extra>")
-        st.plotly_chart(fig3, use_container_width=True)
+        st.plotly_chart(fig3, use_container_width=True, config=PLOTLY_CONFIG)
         info_box("<strong>Precio vs cantidad:</strong> ¿Los lotes grandes se pagan mejor? Si la línea de tendencia sube, lotes más numerosos cotizan más alto (posible efecto de economía de escala). Si baja, hay descuento por volumen.")
 
     # Gráfica 4: Precio vs peso promedio por animal
@@ -526,7 +552,7 @@ def tab_ultima_subasta(df: pd.DataFrame):
             opacity=0.8, trendline="ols",
         )
         fig4.update_traces(hovertemplate="<b>%{x:.0f} kg/animal</b><br>Precio: $%{y:,.0f} COP/kg<extra></extra>")
-        st.plotly_chart(fig4, use_container_width=True)
+        st.plotly_chart(fig4, use_container_width=True, config=PLOTLY_CONFIG)
         info_box("<strong>Precio vs peso promedio:</strong> ¿Los animales más pesados valen más por kilo? Una correlación positiva indica que el mercado premia el gordeo. Compara por tipo para ver diferencias entre categorías.")
 
 
@@ -602,8 +628,8 @@ def tab_tendencias(df: pd.DataFrame):
     )
     fig.update_traces(line=dict(width=2.5))
     fig.update_traces(hovertemplate="<b>%{x}</b><br>$%{y:,.0f} COP/kg<extra></extra>")
-    fig.update_xaxes(rangeslider_visible=True)
-    st.plotly_chart(fig, use_container_width=True)
+    fig.update_xaxes(rangeslider_visible=False)
+    st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
     info_box(
         "<strong>Tendencias de precio:</strong> Cada línea muestra el precio promedio diario para una ventana de tiempo. "
         "Comparar las 4 ventanas permite ver si la tendencia reciente (7 días) es una corrección puntual o si sigue el "
@@ -720,7 +746,7 @@ def main():
     mostrar_kpis(df_filtrado)
     st.divider()
 
-    # CSS: tabs grandes + layout responsive para móvil
+    # CSS: tabs grandes + layout responsive móvil
     st.markdown(
         """
         <style>
@@ -734,41 +760,75 @@ def main():
             padding-bottom: 10px !important;
         }
 
+        /* ── TABS: scroll horizontal en móvil ── */
+        [data-baseweb="tab-list"] {
+            overflow-x: auto !important;
+            -webkit-overflow-scrolling: touch !important;
+            flex-wrap: nowrap !important;
+            scrollbar-width: none !important;
+        }
+        [data-baseweb="tab-list"]::-webkit-scrollbar { display: none; }
+
         /* ── RESPONSIVE MÓVIL (≤768px) ── */
         @media (max-width: 768px) {
 
-            /* Columnas de Streamlit colapsan a ancho completo */
+            /* Columnas colapsan a ancho completo (apiladas verticalmente) */
             [data-testid="column"] {
                 width: 100% !important;
                 flex: 1 1 100% !important;
                 min-width: 100% !important;
             }
 
-            /* Tabs: texto más pequeño para que quepan */
+            /* Tabs más compactos */
             [data-baseweb="tab"] button p {
-                font-size: 0.85rem !important;
+                font-size: 0.80rem !important;
                 font-weight: 600 !important;
             }
             [data-baseweb="tab"] button {
-                padding: 6px 8px !important;
+                padding: 6px 10px !important;
+                white-space: nowrap !important;
             }
 
-            /* Sidebar más angosto en móvil */
+            /* Sidebar ocupa todo el ancho al abrirse */
             [data-testid="stSidebar"] {
-                min-width: 260px !important;
-                max-width: 260px !important;
+                min-width: 280px !important;
+                max-width: 100vw !important;
             }
 
             /* Gráficas: altura mínima para que no queden aplastadas */
             .js-plotly-plot {
-                min-height: 280px;
+                min-height: 300px !important;
             }
 
-            /* Métricas KPI: centradas */
+            /* KPIs: centrados y más grandes */
             [data-testid="metric-container"] {
                 text-align: center !important;
             }
+            [data-testid="metric-container"] > div {
+                font-size: 1.1rem !important;
+            }
+
+            /* Header principal: tamaño legible */
+            h1 { font-size: 1.4rem !important; }
+            h3 { font-size: 1.1rem !important; }
         }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # Aviso de navegación (solo visible en pantallas pequeñas via CSS)
+    st.markdown(
+        """
+        <div class="mobile-nav-hint" style="
+            background:#E8F5E9; border-left:4px solid #1B5E20;
+            border-radius:6px; padding:10px 14px; margin-bottom:10px;
+            font-size:0.88rem; color:#1B5E20; display:none;">
+        👆 <strong>Desliza las pestañas</strong> para ver más opciones.
+        &nbsp;·&nbsp; 👈 <strong>Abre el menú</strong> (esquina superior izquierda) para filtrar por fecha y tipo de animal.
+        </div>
+        <style>
+        @media (max-width: 768px) { .mobile-nav-hint { display: block !important; } }
         </style>
         """,
         unsafe_allow_html=True,
@@ -785,7 +845,7 @@ def main():
 
     # ── Tab 1: Precios
     with tab1:
-        st.plotly_chart(grafica_serie_tiempo(df_filtrado), use_container_width=True)
+        st.plotly_chart(grafica_serie_tiempo(df_filtrado), use_container_width=True, config=PLOTLY_CONFIG)
         info_box("<strong>Serie de precios:</strong> Muestra el precio promedio pactado (COP/kg) al que se cerraron los lotes para cada tipo de animal a lo largo del tiempo, ignorando el peso de cada lote. Útil para ubicar tendencias y comparar categorías.")
 
     # ── Tab 2: Última Subasta (NUEVA)
@@ -800,17 +860,17 @@ def main():
     with tab4:
         col_vol1, col_vol2 = st.columns(2)
         with col_vol1:
-            st.plotly_chart(grafica_volumen_semanal(df_filtrado), use_container_width=True)
+            st.plotly_chart(grafica_volumen_semanal(df_filtrado), use_container_width=True, config=PLOTLY_CONFIG)
             info_box("<strong>Volumen semanal:</strong> Total de dinero (millones COP) movilizado cada semana en subastas. Barras altas indican temporadas de alta actividad; caídas abruptas pueden señalar factores externos como épocas de lluvia, festivos o menor oferta.")
         with col_vol2:
-            st.plotly_chart(grafica_estacionalidad(df_filtrado), use_container_width=True)
+            st.plotly_chart(grafica_estacionalidad(df_filtrado), use_container_width=True, config=PLOTLY_CONFIG)
             info_box("<strong>Mapa de estacionalidad:</strong> Cada celda muestra el precio promedio COP/kg para ese tipo de animal ese mes. <span style='color:#7B1FA2; font-weight:600;'>■ Morado = precio bajo</span> · <span style='color:#1B5E20; font-weight:600;'>■ Verde = precio alto.</span> Identifica en qué meses cotiza mejor cada categoría.")
 
     # ── Tab 5: Municipios
     with tab5:
         colA, colB = st.columns([2, 1])
         with colA:
-            st.plotly_chart(grafica_barras_municipio(df_filtrado), use_container_width=True)
+            st.plotly_chart(grafica_barras_municipio(df_filtrado), use_container_width=True, config=PLOTLY_CONFIG)
         with colB:
             info_box("<strong>Precio por municipio:</strong> Ranking de los municipios con mayor precio promedio por kg. Los municipios con precios más altos suelen aportar animales de ceba (MC) con mayor peso y mejor genética. Cruza con el filtro de <em>Tipo de Animal</em> en el sidebar para análisis más específico.")
 
