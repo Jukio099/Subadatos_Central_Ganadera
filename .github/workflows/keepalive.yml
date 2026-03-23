@@ -19,14 +19,19 @@ jobs:
   ping:
     name: Ping app Streamlit Cloud
     runs-on: ubuntu-latest
+    env:
+      STREAMLIT_APP_URL: ${{ vars.STREAMLIT_APP_URL }}
     steps:
       - name: Hacer ping a SubaDatos
-        # Reemplaza la URL con la de tu app en Streamlit Cloud
-        # Ejemplo: https://subadatos.streamlit.app
         run: |
+          if [ -z "$STREAMLIT_APP_URL" ]; then
+            echo "⚠️ Define la variable del repositorio STREAMLIT_APP_URL para activar el keepalive."
+            exit 0
+          fi
+
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
             --max-time 30 \
-            "https://TU-APP.streamlit.app")
+            "$STREAMLIT_APP_URL")
           echo "HTTP status: $STATUS"
           if [ "$STATUS" -ge 200 ] && [ "$STATUS" -lt 400 ]; then
             echo "✅ App respondiendo correctamente."

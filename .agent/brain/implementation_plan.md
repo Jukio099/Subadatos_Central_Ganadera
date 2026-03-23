@@ -1,68 +1,65 @@
-# Dashboard Expansión — Plan de Implementación
+# Plan de Implementacion Vivo
 
-Agregar dos pestañas nuevas, reemplazar el KPI de "Kg totales" por una métrica de tendencia con delta, y mantener coherencia visual con la paleta del proyecto.
+Este archivo reemplaza el plan viejo del dashboard y resume el estado real del proyecto.
 
----
+## Estado actual
 
-## 1. KPI col3 — Reemplazar "Kg totales" por "Tendencia 1 mes"
+### Dashboard
 
-#### [MODIFY] [app.py](file:///c:/Users/ASUS/Documents/Subadatos_ETL_Streamlit/modelo/app.py)
+- `modelo/app.py` ya incluye el KPI `Tendencia 1 mes`.
+- `modelo/app.py` ya incluye las tabs `Ultima Subasta` y `Tendencias`.
+- La estructura actual de tabs ya no coincide con el plan historico anterior porque ese trabajo fue implementado.
 
-Dentro de `mostrar_kpis(df)`, col3 actualmente muestra suma de kg. Reemplazar por:
-- Precio promedio del **último mes** del rango filtrado vs. el **mes anterior**
-- `st.metric(..., delta="±X%")` → Streamlit pinta verde si sube, rojo si baja
+### ETL principal
 
----
+- `etl/extract.py` descarga PDFs desde Central Ganadera y consulta Supabase para evitar reprocesar archivos ya cargados.
+- `etl/transform.py` extrae metadata desde el contenido del PDF y usa fallbacks por nombre de archivo.
+- `etl/load.py` hace `upsert` por lotes a Supabase.
+- `etl/main.py` orquesta el pipeline y publica resumen en GitHub Actions cuando corre en CI.
 
-## 2. Nueva tab 2 — "🏷️ Última Subasta"
+## Problemas operativos detectados
 
-Filtra el `df` al **último `fecha_subasta`** disponible en los datos filtrados.
+### 1. Cambios de formato en PDFs recientes
 
-| Gráfica | Tipo | Pregunta que responde |
-|---------|------|-----------------------|
-| Animales por categoría | Barras (paleta COLORES) | ¿Qué tipos se vendieron y cuántos? |
-| Precio vs orden de lote | Línea (`numero_boletin`) | ¿Cómo evolucionó el precio durante la subasta? |
-| Precio vs cantidad de animales | Scatter | ¿Los lotes grandes se pagan mejor o peor? |
-| Precio vs peso promedio/animal | Scatter | ¿Los animales más pesados cotizan más? |
+- Algunos PDFs nuevos usan horas tipo `AM` / `PM` en vez de `a. m.` / `p. m.`.
+- Eso rompe el parser de lotes para subastas recientes si no se contempla el nuevo formato.
 
-> [!NOTE]
-> Si el filtro de fechas del sidebar excluye la última fecha, se muestra `st.warning`.
+### 2. Ruido en la extraccion de links
 
----
+- La pagina de resultados incluye otros PDFs no relacionados con subastas, como informes o politicas.
+- Si no se filtran, el ETL intenta descargarlos y genera ruido, errores 404 y falsos positivos.
 
-## 3. Nueva tab 3 — "📊 Tendencias"
+### 3. Exploracion innecesaria de paginas historicas
 
-4 métricas delta en fila + gráfica de línea de precio por día para cada ventana:
+- Para operacion semanal normalmente basta con revisar `page/1`.
+- Recorrer todas las paginas solo tiene sentido para backfill o recuperacion historica.
 
-| Ventana | Lógica |
-|---------|--------|
-| 7 días | Precio hoy vs precio de hace 7 días |
-| 30 días | Precio hoy vs precio de hace 30 días |
-| 90 días | Precio hoy vs precio de hace 90 días |
-| 180 días | Precio hoy vs precio de hace 180 días |
+### 4. Observabilidad del workflow
 
-Función auxiliar: `calcular_tendencia(df, dias) → (precio_inicio, precio_fin, pct)`
+- El workflow debe distinguir entre:
+  - sin PDFs nuevos
+  - PDFs nuevos con transformacion exitosa
+  - PDFs nuevos pero 0 registros validos
 
-La gráfica muestra las 4 series en un solo `px.line` para comparar visualmente la velocidad de cambio.
+## Prioridades actuales
 
----
+### P1
 
-## 4. Nueva estructura de pestañas
+- Mantener estable la deteccion y parseo de PDFs recientes.
+- Filtrar mejor los links de extraccion.
+- Hacer que el workflow falle o alerte claramente cuando haya PDFs nuevos pero 0 datos validos.
 
-```
-tab1  📈 Precios          ← sin cambios
-tab2  🏷️ Última Subasta   ← NUEVA
-tab3  📊 Tendencias       ← NUEVA
-tab4  🗺️ Municipios       ← antes tab2
-tab5  ⚖️ Volumen          ← antes tab3
-tab6  🔍 Detalle          ← antes tab4
-tab7  🤖 Predictor        ← antes tab5
-```
+### P2
 
----
+- Mejorar el soporte para formatos especiales de equinos y mulares si reaparecen como fuente activa.
+- Seguir fortaleciendo resumentes de ejecucion y contexto de sesiones.
 
-## Verificación
-- Revisar KPI col3: delta % sin NaN si hay poco historial
-- Pestaña "Última Subasta": 4 gráficas de la fecha más reciente
-- Pestaña "Tendencias": 4 métricas + línea, respeta filtro de tipo
-- Pestañas anteriores: sin regresiones
+### P3
+
+- Revisar futuras mejoras del dashboard solo despues de estabilizar ETL y workflows.
+
+## Convenciones de trabajo
+
+- `docs/session_log.md`: bitacora cronologica por sesion.
+- `.agent/brain/project_context.md`: contexto tecnico estable.
+- `cerrar sesion`: comando estandar para actualizar memoria del proyecto.

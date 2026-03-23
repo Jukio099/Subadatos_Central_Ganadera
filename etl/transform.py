@@ -77,6 +77,8 @@ _MESES_ABREV = {
     "sept": 9, "sep": 9, "oct": 10, "nov": 11, "dic": 12,
 }
 
+_PATRON_HORA = r"(?:\d{1,2}:\d{2}:\d{2}\s*(?:[AP]M|[ap]\.?\s*m\.?))"
+
 
 def normalizar_procedencia(nombre: str) -> str:
     """Normaliza el nombre del municipio según el diccionario de correcciones."""
@@ -165,8 +167,7 @@ def extraer_metadata_del_pdf(texto_completo: str) -> dict:
     
     # ── Buscar fecha ──
     texto_header = " ".join(lineas)
-    # Limpiar espacios dentro de palabras (ej: "N OVIEMBRE" → "NOVIEMBRE")
-    texto_header = re.sub(r'([A-ZÁÉÍÓÚÑ])\s([A-ZÁÉÍÓÚÑ]{2,})', r'\1\2', texto_header)
+    texto_header_compacto = re.sub(r'\b([A-ZÁÉÍÓÚÑ]{2,})\s+([A-ZÁÉÍÓÚÑ]{2,})\b', r'\1\2', texto_header)
     
     # Formato A: "DD DE MES DEL YYYY" (2023-2025)
     match_fecha = re.search(
@@ -210,6 +211,21 @@ def extraer_metadata_del_pdf(texto_completo: str) -> dict:
             mes_num = _MESES_ES.get(mes_str_clean)
             if not mes_num:
                 mes_num = _MESES_ABREV.get(mes_str_clean[:3] if len(mes_str_clean) >= 3 else mes_str_clean)
+            if mes_num:
+                try:
+                    fecha = datetime(int(anio_str), mes_num, int(dia_str)).date()
+                except ValueError:
+                    pass
+
+    # Fallback para encabezados con palabras partidas por OCR, sin destruir conectores como "DE"
+    if fecha is None:
+        match_fecha4 = re.search(
+            r"(\d{1,2})\s+DE\s+([A-ZÁÉÍÓÚÑ]+)\s+DEL?\s+(\d{4})",
+            texto_header_compacto, re.IGNORECASE
+        )
+        if match_fecha4:
+            dia_str, mes_nombre, anio_str = match_fecha4.groups()
+            mes_num = _MESES_ES.get(mes_nombre.lower())
             if mes_num:
                 try:
                     fecha = datetime(int(anio_str), mes_num, int(dia_str)).date()
@@ -337,11 +353,11 @@ def parsear_lineas_pdf(texto_pagina: str, nombre_archivo: str = "") -> list[dict
         r'([\d\.]+)\s+'                              # P.Total (kg)
         r'([\d\.]+)\s+'                              # P.Prom (kg)
         r'([A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ\s\-\.]+?)\s+'     # Procedencia
-        r'(\d{1,2}:\d{2}:\d{2}\s+[ap]\.\s*m\.)\s+'  # Hora HH:MM:SS a/p.m.
+        rf'({_PATRON_HORA})\s+'                      # Hora HH:MM:SS AM/PM o a. m./p. m.
         r'([\d\.]+)\s+'                              # $Base/kg
         r'([\d\.]+)\s+'                              # $Final/kg
         r'([\d\.]+)',                                 # $Total
-        re.MULTILINE,
+        re.MULTILINE | re.IGNORECASE,
     )
 
     for m in _PATRON_ESTRICTO.finditer(texto_pagina):
@@ -376,7 +392,7 @@ def parsear_lineas_pdf(texto_pagina: str, nombre_archivo: str = "") -> list[dict
         r'([\d\.]+)\s+'                              # $Base/kg o $Final/kg
         r'([\d\.]+)\s+'                              # $Final/kg o $Total
         r'([\d\.]+)',                                 # $Total
-        re.MULTILINE,
+        re.MULTILINE | re.IGNORECASE,
     )
 
     candidatos_fallback = 0
@@ -412,6 +428,9 @@ def parsear_lineas_pdf(texto_pagina: str, nombre_archivo: str = "") -> list[dict
             if re.match(r'^\s*\d{1,3}\s+[A-Z]', l.strip())
         ]
         if lineas_candidatas:
+            ejemplo_hora = any(re.search(_PATRON_HORA, l, re.IGNORECASE) for l in lineas_candidatas[:20])
+            if ejemplo_hora:
+                print(f"    ℹ️  {nombre_archivo}: se detectaron horas en formato reciente; revisar parser si no hubo match")
             print(f"    🔍 {nombre_archivo}: {len(lineas_candidatas)} líneas candidatas "
                   f"no parseadas. Primeras 3:")
             for linea in lineas_candidatas[:3]:

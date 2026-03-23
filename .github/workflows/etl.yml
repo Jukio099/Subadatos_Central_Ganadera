@@ -8,6 +8,15 @@ on:
     - cron: "0 11 * * 3,4"
   # Ejecución manual desde GitHub Actions → pestaña "Run workflow"
   workflow_dispatch:
+    inputs:
+      scan_scope:
+        description: "Alcance del rastreo de páginas"
+        required: true
+        default: fast
+        type: choice
+        options:
+          - fast
+          - full
 
 jobs:
   etl:
@@ -35,17 +44,21 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-        run: python etl/main.py --solo-nuevos
+          PYTHONUTF8: "1"
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.scan_scope }}" = "full" ]; then
+            python etl/main.py
+          else
+            python etl/main.py --solo-nuevos
+          fi
 
       # 5. Resumen en la UI de GitHub Actions
       - name: Publicar resumen
         if: always()
         run: |
-          echo "## 🐄 ETL Central Ganadera de Medellín" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Campo | Valor |" >> $GITHUB_STEP_SUMMARY
-          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Fecha de ejecución | $(date -u '+%Y-%m-%d %H:%M UTC') |" >> $GITHUB_STEP_SUMMARY
-          echo "| Modo | Solo PDFs nuevos (--solo-nuevos) |" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Revisa los logs del step **'Ejecutar ETL'** para ver el detalle de registros insertados y posibles errores." >> $GITHUB_STEP_SUMMARY
+          echo "Fecha de ejecución: $(date -u '+%Y-%m-%d %H:%M UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "Repositorio: $GITHUB_REPOSITORY" >> $GITHUB_STEP_SUMMARY
+          echo "Run ID: $GITHUB_RUN_ID" >> $GITHUB_STEP_SUMMARY
