@@ -1,0 +1,45 @@
+name: ETL — SubaCasanare
+
+# SubaCasanare realiza subastas los viernes.
+# El workflow corre los sabados a las 06:00 Colombia (11:00 UTC) para recoger el boletin.
+
+on:
+  schedule:
+    - cron: "0 11 * * 6"
+  workflow_dispatch:
+    inputs:
+      max_pdfs:
+        description: "Maximo de PDFs nuevos a intentar"
+        required: false
+        default: "10"
+
+jobs:
+  etl-casanare:
+    name: ETL SubaCasanare
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Ejecutar ETL
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          PYTHONUTF8: "1"
+        run: |
+          MAX="${{ github.event.inputs.max_pdfs || '10' }}"
+          python etl/main_casanare.py --max "$MAX"
+
+      - name: Publicar resumen
+        if: always()
+        run: echo "ETL SubaCasanare completado" >> "$GITHUB_STEP_SUMMARY"

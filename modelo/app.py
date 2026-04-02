@@ -161,6 +161,73 @@ def cargar_datos() -> pd.DataFrame:
         st.error(f"Error conectando a Supabase: {e}")
         return pd.DataFrame()
 
+
+@st.cache_data(ttl=60 * 60 * 24)
+def cargar_datos_casanare() -> pd.DataFrame:
+    """Carga datos de subastas_casanare y los normaliza al esquema del dashboard."""
+    load_dotenv()
+
+    supabase_url = os.environ.get("SUPABASE_URL")
+    supabase_key = os.environ.get("SUPABASE_KEY")
+
+    if not supabase_url or not supabase_key:
+        try:
+            supabase_url = st.secrets["SUPABASE_URL"]
+            supabase_key = st.secrets["SUPABASE_KEY"]
+        except Exception:
+            st.error("❌ Faltan credenciales de Supabase en el entorno o en los secrets.")
+            st.stop()
+
+    try:
+        supabase = create_client(supabase_url, supabase_key)
+        columnas = (
+            "fecha_subasta,numero_pdf,sexo_codigo,"
+            "cantidad_animales,peso_total_kg,precio_final_kg,procedencia"
+        )
+        todas_las_filas = []
+        rango_inicio = 0
+        rango_fin = 999
+
+        while True:
+            respuesta = (
+                supabase.table("subastas_casanare")
+                .select(columnas)
+                .gt("precio_final_kg", 0)
+                .range(rango_inicio, rango_fin)
+                .execute()
+            )
+            data = respuesta.data
+
+            if not data:
+                break
+
+            todas_las_filas.extend(data)
+
+            if len(data) < 1000:
+                break
+
+            rango_inicio += 1000
+            rango_fin += 1000
+
+        df = pd.DataFrame(todas_las_filas)
+        if df.empty:
+            return pd.DataFrame()
+
+        df = df.rename(columns={"sexo_codigo": "tipo_codigo", "numero_pdf": "numero_boletin"})
+        df["tipo_subasta"] = "Casanare"
+        df["fecha_subasta"] = pd.to_datetime(df["fecha_subasta"])
+        df["precio_final_kg"] = pd.to_numeric(df["precio_final_kg"], errors="coerce")
+        df["peso_total_kg"] = pd.to_numeric(df["peso_total_kg"], errors="coerce")
+        df["cantidad_animales"] = pd.to_numeric(df["cantidad_animales"], errors="coerce")
+
+        if "precio_total_cop" not in df.columns and "peso_total_kg" in df.columns:
+            df["precio_total_cop"] = df["peso_total_kg"] * df["precio_final_kg"]
+
+        return df
+    except Exception as e:
+        st.error(f"Error conectando a Supabase: {e}")
+        return pd.DataFrame()
+
 # ── FUNCIONES DE GRÁFICAS (del SKILL) ─────────────────────────
 def grafica_serie_tiempo(df: pd.DataFrame) -> go.Figure:
     df_agrupado = (
@@ -714,12 +781,20 @@ def tab_contacto():
 
 # ── MAIN ──────────────────────────────────────────────────────
 def main():
+    feria_sel = st.sidebar.selectbox(
+        "🏠 Feria",
+        ["Central Ganadera", "Casanare"],
+        index=0,
+    )
+
+    cargador = cargar_datos_casanare if feria_sel == "Casanare" else cargar_datos
+
     # Cargar datos
-    with st.spinner("Conectando con Supabase y descargando históricos..."):
-        df = cargar_datos()
+    with st.spinner(f"Conectando con Supabase y descargando históricos de {feria_sel}..."):
+        df = cargador()
 
     if df.empty:
-        st.warning("⚠️ No se encontraron datos en Supabase o no hay conexión.")
+        st.warning(f"⚠️ No se encontraron datos para {feria_sel} en Supabase o no hay conexión.")
         return
 
     # Sidebar
@@ -731,12 +806,17 @@ def main():
     # Header
     st.markdown(
         "<h1 style='color:#1B5E20; font-family:Google Sans,sans-serif; margin-bottom: 0;'>"
-        "🐄 Mercado Ganadero — Central Ganadera Medellín</h1>",
+        f"🐄 Mercado Ganadero — {feria_sel}</h1>",
         unsafe_allow_html=True
     )
     
     color_subtitulo = "#212121" if modo_color == "Claro" else "#E0E0E0"
-    st.markdown(f"<p style='color:{color_subtitulo};'>Inteligencia de precios y volumen de subastas en Antioquia</p>", unsafe_allow_html=True)
+    subtitulo = (
+        "Inteligencia de precios y volumen de subastas en Antioquia"
+        if feria_sel == "Central Ganadera"
+        else "Inteligencia de precios y volumen de subastas en Casanare"
+    )
+    st.markdown(f"<p style='color:{color_subtitulo};'>{subtitulo}</p>", unsafe_allow_html=True)
 
     if df_filtrado.empty:
         st.warning("⚠️ No hay datos para los filtros seleccionados. Intenta ampliar el rango.")
