@@ -20,6 +20,8 @@ from etl.casanare import TABLA, procesar_pdf
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
+MAX_FALLOS_CONSECUTIVOS = 3  # PDFs consecutivos sin datos antes de detener la búsqueda
+
 _DIR_SCRIPT = os.path.dirname(os.path.abspath(__file__))
 _DIR_PROYECTO = os.path.join(_DIR_SCRIPT, "..")
 
@@ -62,7 +64,6 @@ def main(max_nuevos: int = 10) -> int:
     total_cargados = 0
     intentados = 0
     fallos_consecutivos = 0
-    MAX_FALLOS_CONSECUTIVOS = 3  # para si la numeración tiene huecos
 
     for numero in range(ultimo + 1, ultimo + max_nuevos + 1):
         intentados += 1
