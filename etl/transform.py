@@ -24,6 +24,7 @@ _DIR_PROYECTO = os.path.join(_DIR_SCRIPT, "..")
 # ─── MAPEO DE TIPOS DE ANIMAL ──────────────────────────────────────────────────
 # Códigos que aparecen en la columna "Tipo" del PDF
 TIPOS_ANIMAL = {
+    # Bovinos
     "HV": "Hembra de vientre",
     "HL": "Hembra de levante",
     "MC": "Macho de ceba",
@@ -34,8 +35,12 @@ TIPOS_ANIMAL = {
     "R":  "Reproductor",
     "M1": "Macho 1 diente",
     "M3": "Macho 3 dientes",
+    # Equinos / Mulares
     "Y":  "Yegua",
+    "P1": "Potro 1 año",
     "P2": "Potro 2 años",
+    "M2": "Macho 2 dientes",
+    "C":  "Caballo",
 }
 
 # ─── NORMALIZACIÓN DE PROCEDENCIA (MUNICIPIOS) ────────────────────────────────
@@ -361,10 +366,13 @@ def parsear_lineas_pdf(texto_pagina: str, nombre_archivo: str = "") -> list[dict
     )
 
     for m in _PATRON_ESTRICTO.finditer(texto_pagina):
-        lote, tipo, cant, p_total, p_prom, procedencia, hora, base_kg, final_kg, _ = m.groups()
+        lote, tipo, cant, p_total, p_prom, procedencia, hora, base_kg, final_kg, promedio = m.groups()
         tipo = tipo.strip()
         if tipo not in TIPOS_ANIMAL:
             continue
+        # Para subastas equinas/mulares, $Base y $Final son 0 (sin precio/kg).
+        # El precio real por animal está en la última columna ($Promedio/$Total).
+        precio_final = limpiar_numero(final_kg) or limpiar_numero(promedio)
         filas.append({
             "numero_lote":       lote.strip(),
             "tipo_codigo":       tipo,
@@ -374,7 +382,7 @@ def parsear_lineas_pdf(texto_pagina: str, nombre_archivo: str = "") -> list[dict
             "procedencia":       normalizar_procedencia(procedencia.strip().title()),
             "hora_subasta":      hora.strip(),
             "precio_base_kg":    limpiar_numero(base_kg),
-            "precio_final_kg":   limpiar_numero(final_kg),
+            "precio_final_kg":   precio_final,
         })
 
     if filas:
@@ -397,11 +405,12 @@ def parsear_lineas_pdf(texto_pagina: str, nombre_archivo: str = "") -> list[dict
 
     candidatos_fallback = 0
     for m in _PATRON_FALLBACK.finditer(texto_pagina):
-        lote, tipo, cant, p_total, p_prom, procedencia, base_kg, final_kg, _ = m.groups()
+        lote, tipo, cant, p_total, p_prom, procedencia, base_kg, final_kg, promedio = m.groups()
         tipo = tipo.strip()
         if tipo not in TIPOS_ANIMAL:
             continue
         candidatos_fallback += 1
+        precio_final = limpiar_numero(final_kg) or limpiar_numero(promedio)
         filas.append({
             "numero_lote":       lote.strip(),
             "tipo_codigo":       tipo,
@@ -411,7 +420,7 @@ def parsear_lineas_pdf(texto_pagina: str, nombre_archivo: str = "") -> list[dict
             "procedencia":       normalizar_procedencia(procedencia.strip().title()),
             "hora_subasta":      None,   # No disponible en este formato
             "precio_base_kg":    limpiar_numero(base_kg),
-            "precio_final_kg":   limpiar_numero(final_kg),
+            "precio_final_kg":   precio_final,
         })
 
     if filas:
@@ -549,23 +558,33 @@ def procesar_todos_los_pdfs(
     
     df_final = pd.concat(dfs, ignore_index=True)
     
-    # Limpieza final: eliminar registros sin datos esenciales
-    df_final = df_final.dropna(subset=["precio_final_kg", "peso_total_kg"])
+    # Limpieza final: eliminar registros sin precio (requerido siempre)
+    df_final = df_final.dropna(subset=["precio_final_kg"])
     df_final = df_final[df_final["precio_final_kg"] > 0]
-    df_final = df_final[df_final["peso_total_kg"] > 0]
-    
-    # Diagnóstico previo a filtros — ayuda a detectar el umbral correcto
+
+    # Subastas equinas/mulares: caballos y mulas se venden por cabeza, no por kg.
+    # Su peso reportado es 0 y su precio es el total por animal (puede superar 500k COP).
+    TIPOS_EQUINOS = {"Equina", "Mulares"}
+    es_equino = df_final["tipo_subasta"].isin(TIPOS_EQUINOS)
+
+    # Para bovinos: también requerir peso válido
+    df_final = df_final[es_equino | (df_final["peso_total_kg"].notna() & (df_final["peso_total_kg"] > 0))]
+
+    # Diagnóstico previo a filtros de calidad — ayuda a detectar el umbral correcto
     if "tipo_subasta" in df_final.columns:
         for tipo_s, grupo in df_final.groupby("tipo_subasta"):
             p_max = grupo["precio_final_kg"].max() if not grupo.empty else 0
             print(f"  📊 {tipo_s}: {len(grupo)} lotes, precio_final_kg máx = {p_max:,.0f}")
 
     # Filtros de calidad: eliminar errores obvios de parseo del PDF
-    # Nota: subastas Equinas/Mulares reportan precio TOTAL del animal (millones COP),
-    # no precio por kg — por eso el límite es 500.000 en lugar de 50.000.
     n_antes = len(df_final)
-    df_final = df_final[df_final["peso_total_kg"] >= 10]        # Ningún lote pesa <10 kg
-    df_final = df_final[df_final["precio_final_kg"] <= 500_000]  # >500k COP/kg es error de parseo
+    # Bovinos: ningún lote pesa <10 kg ni supera 500k COP/kg
+    bovino_invalido = (~es_equino) & (
+        (df_final["peso_total_kg"] < 10) | (df_final["precio_final_kg"] > 500_000)
+    )
+    # Equinos: precio total por animal no puede superar 500 millones COP (error de parseo)
+    equino_invalido = es_equino & (df_final["precio_final_kg"] > 500_000_000)
+    df_final = df_final[~(bovino_invalido | equino_invalido)]
     n_filtrados = n_antes - len(df_final)
     if n_filtrados > 0:
         print(f"  ⚠️  {n_filtrados} registros eliminados por datos sospechosos (errores de parseo)")

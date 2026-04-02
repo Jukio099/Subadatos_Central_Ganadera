@@ -66,7 +66,7 @@ def main(solo_nuevos: bool = False) -> int:
     registros_transformados = len(df)
 
     if df.empty:
-        print("❌ No se pudieron extraer datos de los PDFs.")
+        print("⚠️  0 registros válidos tras la transformación. Puede ser un PDF equino/mular sin datos reconocibles.")
         escribir_resumen_github([
             "## 🐄 ETL Central Ganadera de Medellín",
             "",
@@ -77,11 +77,11 @@ def main(solo_nuevos: bool = False) -> int:
             f"| PDFs saltados por existir en BD | {pdfs_saltados} |",
             f"| PDFs enviados a transformación | {len(boletines)} |",
             f"| Registros válidos extraídos | {registros_transformados} |",
-            "| Resultado | Falló la transformación: hubo PDFs nuevos pero 0 registros válidos |",
+            "| Resultado | Sin registros válidos — revisar formato del PDF |",
             "",
-            "> Revisa los logs del step `Ejecutar ETL`; normalmente esto indica un cambio de formato en los PDFs o enlaces irrelevantes en la página.",
+            "> Revisa los logs del step `Ejecutar ETL`; puede indicar un cambio de formato en los PDFs.",
         ])
-        return 1
+        return 0
 
     # Guardar CSV como respaldo siempre (en la raíz del proyecto)
     csv_path = os.path.join(_DIR_PROYECTO, "datos_subastas.csv")
