@@ -88,6 +88,7 @@ def parsear_pdf(contenido: bytes, numero_pdf: int) -> list[dict]:
                 if not linea:
                     continue
 
+                # Extraer metadatos del header
                 m = _FERIA_RE.search(linea)
                 if m:
                     meta["tipo_subasta"] = m.group(2).upper()
@@ -103,9 +104,11 @@ def parsear_pdf(contenido: bytes, numero_pdf: int) -> list[dict]:
                     meta["martillo"] = m.group(2).strip().upper()
                     continue
 
+                # Ignorar línea de encabezado de columnas
                 if linea.startswith("Lote "):
                     continue
 
+                # Intentar parsear como fila de lote
                 m = _LOT_RE.match(linea)
                 if m:
                     fila = {
@@ -123,6 +126,7 @@ def parsear_pdf(contenido: bytes, numero_pdf: int) -> list[dict]:
                     }
                     filas.append(fila)
                 else:
+                    # Línea de observación adicional: adjuntar al último lote de esta página
                     if filas[page_start:] and linea and not linea.startswith("SUBASTA"):
                         ultimo = filas[-1]
                         obs_actual = ultimo.get("observaciones") or ""
@@ -130,6 +134,7 @@ def parsear_pdf(contenido: bytes, numero_pdf: int) -> list[dict]:
                             (obs_actual + " / " + linea).strip(" /")
                         )
 
+            # C2: warning si metadatos clave siguen None después de la primera página
             if page_num == 0 and meta["fecha_subasta"] is None:
                 logger.warning(
                     "PDF %s: no se encontró fecha_subasta en la primera página",
@@ -145,6 +150,7 @@ def cargar_en_supabase(client, filas: list[dict]) -> int:
     if not filas:
         return 0
 
+    # Convertir date a string para JSON
     for f in filas:
         if isinstance(f.get("fecha_subasta"), date):
             f["fecha_subasta"] = f["fecha_subasta"].isoformat()
