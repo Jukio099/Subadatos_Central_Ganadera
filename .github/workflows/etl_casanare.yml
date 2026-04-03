@@ -1,11 +1,9 @@
 name: ETL — SubaCasanare
 
-# SubaCasanare realiza subastas los viernes.
-# El workflow corre los sabados a las 06:00 Colombia (11:00 UTC) para recoger el boletin.
+# Workflow manual de contingencia.
+# La automatizacion oficial de Casanare vive en AutomtizacionReporteGanadero.
 
 on:
-  schedule:
-    - cron: "0 11 * * 6"
   workflow_dispatch:
     inputs:
       max_pdfs:
