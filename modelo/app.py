@@ -401,13 +401,36 @@ def sidebar_filtros(df: pd.DataFrame) -> tuple[pd.DataFrame, str]:
 
     # 2. Tipo de subasta
     tipos_subasta_disponibles = sorted(df["tipo_subasta"].dropna().unique().tolist())
+    resumen_tipo_subasta = (
+        df.groupby("tipo_subasta")
+        .agg(
+            lotes=("tipo_subasta", "size"),
+            subastas=("numero_boletin", "nunique"),
+        )
+        .to_dict("index")
+    )
+
     if "Tradicional" in tipos_subasta_disponibles:
         tipos_subasta = ["Tradicional", "Todos"] + [t for t in tipos_subasta_disponibles if t != "Tradicional"]
         indice_default_tipo = 0
     else:
         tipos_subasta = ["Todos"] + tipos_subasta_disponibles
         indice_default_tipo = 0
-    tipo_subasta = st.sidebar.selectbox("🏷️ Tipo de Subasta", tipos_subasta, index=indice_default_tipo)
+
+    def formatear_tipo_subasta(opcion: str) -> str:
+        if opcion == "Todos":
+            return "Todos"
+        resumen = resumen_tipo_subasta.get(opcion)
+        if not resumen:
+            return opcion
+        return f"{opcion} ({resumen['subastas']} subastas, {resumen['lotes']} lotes)"
+
+    tipo_subasta = st.sidebar.selectbox(
+        "🏷️ Tipo de Subasta",
+        tipos_subasta,
+        index=indice_default_tipo,
+        format_func=formatear_tipo_subasta,
+    )
 
     # 3. Tipo de animal (MC y ML por defecto)
     tipos_animal = sorted(df["tipo_codigo"].dropna().unique().tolist())
