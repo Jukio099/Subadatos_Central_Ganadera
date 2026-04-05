@@ -12,6 +12,11 @@ import logging
 import os
 import sys
 
+_DIR_SCRIPT = os.path.dirname(os.path.abspath(__file__))
+_DIR_PROYECTO = os.path.join(_DIR_SCRIPT, "..")
+if _DIR_PROYECTO not in sys.path:
+    sys.path.insert(0, _DIR_PROYECTO)
+
 from dotenv import load_dotenv
 from supabase import create_client
 
@@ -21,9 +26,6 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
 MAX_FALLOS_CONSECUTIVOS = 3  # PDFs consecutivos sin datos antes de detener la búsqueda
-
-_DIR_SCRIPT = os.path.dirname(os.path.abspath(__file__))
-_DIR_PROYECTO = os.path.join(_DIR_SCRIPT, "..")
 
 
 def _get_ultimo_numero_pdf(client) -> int:

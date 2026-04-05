@@ -1,12 +1,20 @@
-import streamlit as st
+import os
+import sys
+from datetime import timedelta
+import locale
+
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from supabase import create_client
+import streamlit as st
 from dotenv import load_dotenv
-import os
-from datetime import timedelta
-import locale
+from supabase import create_client
+
+_DIR_SCRIPT = os.path.dirname(os.path.abspath(__file__))
+_DIR_PROYECTO = os.path.join(_DIR_SCRIPT, "..")
+if _DIR_PROYECTO not in sys.path:
+    sys.path.insert(0, _DIR_PROYECTO)
+
 from shared.data_cleaning import (
     FERIA_CASANARE,
     FERIA_CENTRAL,
@@ -118,14 +126,6 @@ def normalizar_dataframe_dashboard(df: pd.DataFrame, feria: str) -> pd.DataFrame
     df["tipo_subasta"] = df["tipo_subasta"].apply(lambda v: normalizar_tipo_subasta(v, feria))
     df["procedencia"] = df["procedencia"].apply(lambda v: normalizar_procedencia(v, feria))
 
-    if feria == "Central Ganadera":
-        df = df[
-            ~(
-                df["procedencia"].str.contains("Barrancabermeja", case=False, na=False)
-                & (df["precio_final_kg"] > 20000)
-            )
-        ]
-
     df = df.dropna(subset=["fecha_subasta", "precio_final_kg", "procedencia", "tipo_codigo"])
 
     if "precio_total_cop" not in df.columns and "peso_total_kg" in df.columns:
@@ -133,91 +133,38 @@ def normalizar_dataframe_dashboard(df: pd.DataFrame, feria: str) -> pd.DataFrame
 
     return df
 
-# ── CARGA DE DATOS ────────────────────────────────────────────
-@st.cache_data(ttl=60 * 60 * 24)  # 24 horas — datos se actualizan semanalmente
-def cargar_datos() -> pd.DataFrame:
-    """Carga todos los datos de Supabase y los retorna como DataFrame."""
-    load_dotenv()
-    
-    supabase_url = os.environ.get("SUPABASE_URL")
-    supabase_key = os.environ.get("SUPABASE_KEY")
-    
-    if not supabase_url or not supabase_key:
-        try:
-            supabase_url = st.secrets["SUPABASE_URL"]
-            supabase_key = st.secrets["SUPABASE_KEY"]
-        except Exception:
-            st.error("❌ Faltan credenciales de Supabase en el entorno o en los secrets.")
-            st.stop()
-            
-    try:
-        supabase = create_client(supabase_url, supabase_key)
-        
-        # Paginación (1000 a la vez)
-        todas_las_filas = []
-        rango_inicio = 0
-        rango_fin = 999
-        
-        # Seleccionamos las columnas específicamente para no saturar memoria en despliegue
-        columnas = "fecha_subasta,numero_boletin,tipo_subasta,tipo_codigo,cantidad_animales,peso_total_kg,precio_final_kg,procedencia"
-        
-        while True:
-            # Filtramos directo desde la db para traer solo precio > 0
-            respuesta = supabase.table("subastas").select(columnas).gt("precio_final_kg", 0).range(rango_inicio, rango_fin).execute()
-            data = respuesta.data
-            
-            if not data:
-                break
-                
-            todas_las_filas.extend(data)
-            
-            if len(data) < 1000:
-                break
-                
-            rango_inicio += 1000
-            rango_fin += 1000
-            
-        df = pd.DataFrame(todas_las_filas)
-        if df.empty:
-            return pd.DataFrame()
 
-        return normalizar_dataframe_dashboard(df, feria=FERIA_CENTRAL)
-    except Exception as e:
-        st.error(f"Error conectando a Supabase: {e}")
-        return pd.DataFrame()
-
-
-@st.cache_data(ttl=60 * 60 * 24)
-def cargar_datos_casanare() -> pd.DataFrame:
-    """Carga datos de subastas_casanare y los normaliza al esquema del dashboard."""
-    load_dotenv()
+def obtener_credenciales_supabase() -> tuple[str, str]:
+    load_dotenv(os.path.join(_DIR_PROYECTO, ".env"))
 
     supabase_url = os.environ.get("SUPABASE_URL")
     supabase_key = os.environ.get("SUPABASE_KEY")
 
-    if not supabase_url or not supabase_key:
-        try:
-            supabase_url = st.secrets["SUPABASE_URL"]
-            supabase_key = st.secrets["SUPABASE_KEY"]
-        except Exception:
-            st.error("❌ Faltan credenciales de Supabase en el entorno o en los secrets.")
-            st.stop()
+    if supabase_url and supabase_key:
+        return supabase_url, supabase_key
+
+    try:
+        return st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"]
+    except Exception:
+        st.error("❌ Faltan credenciales de Supabase en el entorno o en los secrets.")
+        st.stop()
+
+
+def cargar_tabla_supabase(tabla: str, columnas: str, order_col: str) -> pd.DataFrame:
+    supabase_url, supabase_key = obtener_credenciales_supabase()
 
     try:
         supabase = create_client(supabase_url, supabase_key)
-        columnas = (
-            "fecha_subasta,numero_pdf,tipo_subasta,sexo_codigo,"
-            "cantidad_animales,peso_total_kg,precio_final_kg,procedencia"
-        )
         todas_las_filas = []
         rango_inicio = 0
         rango_fin = 999
 
         while True:
             respuesta = (
-                supabase.table("subastas_casanare")
+                supabase.table(tabla)
                 .select(columnas)
                 .gt("precio_final_kg", 0)
+                .order(order_col)
                 .range(rango_inicio, rango_fin)
                 .execute()
             )
@@ -234,16 +181,37 @@ def cargar_datos_casanare() -> pd.DataFrame:
             rango_inicio += 1000
             rango_fin += 1000
 
-        df = pd.DataFrame(todas_las_filas)
-        if df.empty:
-            return pd.DataFrame()
-
-        df = df.rename(columns={"sexo_codigo": "tipo_codigo", "numero_pdf": "numero_boletin"})
-
-        return normalizar_dataframe_dashboard(df, feria=FERIA_CASANARE)
+        return pd.DataFrame(todas_las_filas)
     except Exception as e:
         st.error(f"Error conectando a Supabase: {e}")
         return pd.DataFrame()
+
+# ── CARGA DE DATOS ────────────────────────────────────────────
+@st.cache_data(ttl=60 * 60 * 24)  # 24 horas — datos se actualizan semanalmente
+def cargar_datos() -> pd.DataFrame:
+    """Carga todos los datos de Supabase y los retorna como DataFrame."""
+    columnas = "fecha_subasta,numero_boletin,tipo_subasta,tipo_codigo,cantidad_animales,peso_total_kg,precio_final_kg,procedencia"
+    df = cargar_tabla_supabase("subastas", columnas, order_col="fecha_subasta")
+    if df.empty:
+        return pd.DataFrame()
+
+    return normalizar_dataframe_dashboard(df, feria=FERIA_CENTRAL)
+
+
+@st.cache_data(ttl=60 * 60 * 24)
+def cargar_datos_casanare() -> pd.DataFrame:
+    """Carga datos de subastas_casanare y los normaliza al esquema del dashboard."""
+    columnas = (
+        "fecha_subasta,numero_pdf,tipo_subasta,sexo_codigo,"
+        "cantidad_animales,peso_total_kg,precio_final_kg,procedencia"
+    )
+    df = cargar_tabla_supabase("subastas_casanare", columnas, order_col="fecha_subasta")
+    if df.empty:
+        return pd.DataFrame()
+
+    df = df.rename(columns={"sexo_codigo": "tipo_codigo", "numero_pdf": "numero_boletin"})
+
+    return normalizar_dataframe_dashboard(df, feria=FERIA_CASANARE)
 
 # ── FUNCIONES DE GRÁFICAS (del SKILL) ─────────────────────────
 def grafica_serie_tiempo(df: pd.DataFrame) -> go.Figure:

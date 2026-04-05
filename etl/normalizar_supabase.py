@@ -26,7 +26,7 @@ TABLAS = {
 
 
 def crear_cliente():
-    load_dotenv()
+    load_dotenv(os.path.join(_DIR_PROYECTO, ".env"))
     supabase_url = os.environ.get("SUPABASE_URL")
     supabase_key = os.environ.get("SUPABASE_KEY")
     if not supabase_url or not supabase_key:
@@ -38,7 +38,14 @@ def leer_tabla(client, tabla: str, columnas: str) -> list[dict]:
     filas = []
     inicio = 0
     while True:
-        data = client.table(tabla).select(columnas).range(inicio, inicio + 999).execute().data
+        data = (
+            client.table(tabla)
+            .select(columnas)
+            .order("id")
+            .range(inicio, inicio + 999)
+            .execute()
+            .data
+        )
         if not data:
             break
         filas.extend(data)

@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS subastas (
 
 -- Evitar duplicados si se corre el ETL varias veces
 CREATE UNIQUE INDEX IF NOT EXISTS idx_subastas_unique 
-ON subastas(archivo_fuente, tipo_codigo, procedencia, hora_subasta);
+ON subastas(archivo_fuente, numero_lote);
 
 -- Índices para el dashboard
 CREATE INDEX IF NOT EXISTS idx_subastas_fecha ON subastas(fecha_subasta);
@@ -115,10 +115,10 @@ def subir_a_supabase(df: pd.DataFrame, tabla: str = "subastas", batch_size: int 
     # Eliminar duplicados lógicos (clones) en el dataframe antes de subir
     # para evitar el error 'ON CONFLICT DO UPDATE cannot affect row a second time'
     n_antes = len(df)
-    df = df.drop_duplicates(subset=["archivo_fuente", "tipo_codigo", "procedencia", "hora_subasta"], keep="first")
+    df = df.drop_duplicates(subset=["archivo_fuente", "numero_lote"], keep="first")
     n_duplicados = n_antes - len(df)
     if n_duplicados > 0:
-        print(f"🧹 Se eliminaron {n_duplicados} filas duplicadas idénticas (mismo archivo, código, procedencia y hora).")
+        print(f"🧹 Se eliminaron {n_duplicados} filas duplicadas idénticas (mismo archivo y numero_lote).")
 
     stats = {"procesados": len(df), "exitosos": 0, "fallidos": 0, "errores": []}
     if df.empty:
@@ -137,10 +137,10 @@ def subir_a_supabase(df: pd.DataFrame, tabla: str = "subastas", batch_size: int 
         lote = registros[i : i + batch_size]
         try:
             # upsert: inserta si no existe, actualiza si ya existe
-            # (basado en combinación archivo_fuente, tipo_codigo, procedencia, hora_subasta)
+            # (basado en combinación archivo_fuente, numero_lote)
             resultado = supabase.table(tabla).upsert(
                 lote, 
-                on_conflict="archivo_fuente,tipo_codigo,procedencia,hora_subasta"
+                on_conflict="archivo_fuente,numero_lote"
             ).execute()
             insertados += len(lote)
             stats["exitosos"] += len(lote)

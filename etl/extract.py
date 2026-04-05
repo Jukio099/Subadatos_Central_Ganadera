@@ -21,16 +21,16 @@ import sys
 from dotenv import load_dotenv
 from supabase import create_client, Client
 
-load_dotenv()
-
 # ─── CONFIGURACIÓN ────────────────────────────────────────────────────────────
 BASE_URL = "https://centralganadera.com/boletines/resultados-de-subasta/"
 # Ruta absoluta a la carpeta pdfs/ en la raíz del proyecto (un nivel arriba de etl/)
 _DIR_SCRIPT = os.path.dirname(os.path.abspath(__file__))
+_DIR_PROYECTO = os.path.join(_DIR_SCRIPT, "..")
+load_dotenv(os.path.join(_DIR_PROYECTO, ".env"))
 PDF_DIR = os.path.join(_DIR_SCRIPT, "..", "pdfs")
 MAX_PAGES = 15            # número máximo de páginas a recorrer (ajusta según crezca el sitio)
 DELAY = 1.5               # segundos de espera entre requests (para no sobrecargar el servidor)
-DEFAULT_FAST_PAGES = 1    # en modo incremental operativo, casi siempre basta con la página 1
+DEFAULT_FAST_PAGES = max(1, int(os.environ.get("ETL_FAST_PAGES", "2")))
 
 # ─── CLIENTE SUPABASE ─────────────────────────────────────────────────────────
 _supabase_url = os.environ.get("SUPABASE_URL", "")
