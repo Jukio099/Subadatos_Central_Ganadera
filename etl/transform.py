@@ -15,11 +15,17 @@ import pdfplumber
 import pandas as pd
 import re
 import os
+import sys
 from datetime import datetime, date
 
-# Ruta raíz del proyecto (un nivel arriba de etl/)
 _DIR_SCRIPT = os.path.dirname(os.path.abspath(__file__))
 _DIR_PROYECTO = os.path.join(_DIR_SCRIPT, "..")
+if _DIR_PROYECTO not in sys.path:
+    sys.path.insert(0, _DIR_PROYECTO)
+
+from shared.data_cleaning import FERIA_CENTRAL, normalizar_procedencia, normalizar_tipo_subasta
+
+# Ruta raíz del proyecto (un nivel arriba de etl/)
 
 # ─── MAPEO DE TIPOS DE ANIMAL ──────────────────────────────────────────────────
 # Códigos que aparecen en la columna "Tipo" del PDF
@@ -43,32 +49,6 @@ TIPOS_ANIMAL = {
     "C":  "Caballo",
 }
 
-# ─── NORMALIZACIÓN DE PROCEDENCIA (MUNICIPIOS) ────────────────────────────────
-# Corrige variantes del mismo municipio detectadas en los PDFs.
-# Clave = nombre tal cual aparece (en Title Case), Valor = nombre canónico.
-NORMALIZAR_PROCEDENCIA: dict[str, str] = {
-    # Variantes de "Entrada De Flaco" (zona de descarga de la Central Ganadera)
-    "Entra De Flaco":           "Entrada De Flaco",
-    "Entradad De Flaco":        "Entrada De Flaco",
-    "Entrada De Falco":         "Entrada De Flaco",
-    "Entrada De Gando Flaco":   "Entrada De Flaco",
-    # Variantes de "Entrada De Feria"
-    "Entra De Feria":           "Entrada De Feria",
-    "Entrada D Eferia":         "Entrada De Feria",
-    "Entrada De Ganado":        "Entrada De Feria",
-    # Tildes y variantes ortográficas
-    "Santa Bárbara":            "Santa Barbara",
-    "Sabana Larga":             "Sabanalarga",
-    "Caucasi":                  "Caucasia",
-    # Nombres truncados o abreviados
-    "San Pedro De Los":         "San Pedro De Los Milagros",
-    "San Pedro":                "San Pedro De Los Milagros",
-    "Santuario":                "El Santuario",
-    "Santa Rosa":               "Santa Rosa De Osos",
-    "Landazuri -":              "Landazuri",
-    "Victoria- Caldas":         "Victoria",
-}
-
 # ─── MESES EN ESPAÑOL ─────────────────────────────────────────────────────────
 _MESES_ES = {
     "enero": 1, "febrero": 2, "marzo": 3, "abril": 4,
@@ -83,11 +63,6 @@ _MESES_ABREV = {
 }
 
 _PATRON_HORA = r"(?:\d{1,2}:\d{2}:\d{2}\s*(?:[AP]M|[ap]\.?\s*m\.?))"
-
-
-def normalizar_procedencia(nombre: str) -> str:
-    """Normaliza el nombre del municipio según el diccionario de correcciones."""
-    return NORMALIZAR_PROCEDENCIA.get(nombre, nombre)
 
 
 def limpiar_numero(texto: str) -> float | None:
@@ -138,20 +113,7 @@ def extraer_metadata_del_pdf(texto_completo: str) -> dict:
         upper = linea.upper()
         if "RESULTADOS DE SUBASTA" in upper:
             after = upper.replace("RESULTADOS DE SUBASTA", "").strip()
-            if "GYR" in after:
-                tipo_subasta = "Especial GYR"
-            elif "EQUINA" in after:
-                tipo_subasta = "Equina"
-            elif "MULAR" in after or "MULARES" in after:
-                tipo_subasta = "Mulares"
-            elif "ESPECIAL" in after:
-                tipo_subasta = "Especial"
-            elif "TRADICIONAL" in after or "COMERCIAL" in after:
-                tipo_subasta = "Tradicional"
-            elif after == "" or after.startswith("DE") or after.startswith("N"):
-                tipo_subasta = "Tradicional"
-            else:
-                tipo_subasta = "Tradicional"
+            tipo_subasta = normalizar_tipo_subasta(after, FERIA_CENTRAL)
             break
     
     # ── Buscar número de boletín ──
@@ -239,7 +201,7 @@ def extraer_metadata_del_pdf(texto_completo: str) -> dict:
 
     return {
         "fecha": fecha,
-        "tipo_subasta": tipo_subasta or "Tradicional",
+        "tipo_subasta": normalizar_tipo_subasta(tipo_subasta or "Tradicional", FERIA_CENTRAL),
         "num_boletin": num_boletin,
     }
 
@@ -317,16 +279,16 @@ def extraer_tipo_subasta(nombre_archivo: str) -> str:
     """Fallback: detecta tipo de subasta del nombre del archivo."""
     nombre = nombre_archivo.lower()
     if "gyr" in nombre:
-        return "Especial GYR"
+        candidato = "gyr"
     elif "equina" in nombre:
-        return "Equina"
+        candidato = "equina"
     elif "mular" in nombre or "mulares" in nombre:
-        return "Mulares"
-    elif "tradicional" in nombre or "comercial" in nombre:
-        return "Tradicional"
+        candidato = "mular"
     elif "especial" in nombre:
-        return "Especial"
-    return "Tradicional"
+        candidato = "especial"
+    else:
+        candidato = "tradicional"
+    return normalizar_tipo_subasta(candidato, FERIA_CENTRAL)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -379,7 +341,7 @@ def parsear_lineas_pdf(texto_pagina: str, nombre_archivo: str = "") -> list[dict
             "cantidad_animales": int(cant),
             "peso_total_kg":     limpiar_numero(p_total),
             "peso_promedio_kg":  limpiar_numero(p_prom),
-            "procedencia":       normalizar_procedencia(procedencia.strip().title()),
+            "procedencia":       normalizar_procedencia(procedencia.strip().title(), FERIA_CENTRAL),
             "hora_subasta":      hora.strip(),
             "precio_base_kg":    limpiar_numero(base_kg),
             "precio_final_kg":   precio_final,
@@ -417,7 +379,7 @@ def parsear_lineas_pdf(texto_pagina: str, nombre_archivo: str = "") -> list[dict
             "cantidad_animales": int(cant),
             "peso_total_kg":     limpiar_numero(p_total),
             "peso_promedio_kg":  limpiar_numero(p_prom),
-            "procedencia":       normalizar_procedencia(procedencia.strip().title()),
+            "procedencia":       normalizar_procedencia(procedencia.strip().title(), FERIA_CENTRAL),
             "hora_subasta":      None,   # No disponible en este formato
             "precio_base_kg":    limpiar_numero(base_kg),
             "precio_final_kg":   precio_final,
@@ -481,6 +443,7 @@ def procesar_pdf(ruta_pdf: str, metadata: dict = None) -> pd.DataFrame:
             # Usar metadata del PDF como fuente primaria; nombre del archivo como fallback
             fecha = meta_pdf["fecha"] or extraer_fecha_de_nombre(nombre_archivo)
             tipo_subasta = meta_pdf["tipo_subasta"] if meta_pdf["tipo_subasta"] != "Tradicional" else extraer_tipo_subasta(nombre_archivo)
+            tipo_subasta = normalizar_tipo_subasta(tipo_subasta, FERIA_CENTRAL)
             num_boletin = meta_pdf["num_boletin"] or extraer_numero_boletin(nombre_archivo)
 
             # Fallo explícito — nunca silencioso — si la fecha no pudo extraerse de ninguna fuente

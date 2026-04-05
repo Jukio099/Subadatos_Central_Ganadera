@@ -7,6 +7,12 @@ from dotenv import load_dotenv
 import os
 from datetime import timedelta
 import locale
+from shared.data_cleaning import (
+    FERIA_CASANARE,
+    FERIA_CENTRAL,
+    normalizar_procedencia,
+    normalizar_tipo_subasta,
+)
 
 # Intentar setear locale en español para nombres de meses (útil para la pestaña 3)
 try:
@@ -95,6 +101,38 @@ def aplicar_tema_plotly(modo: str):
     pio.templates[clave] = tmpl
     pio.templates.default = clave
 
+
+def normalizar_dataframe_dashboard(df: pd.DataFrame, feria: str) -> pd.DataFrame:
+    if df.empty:
+        return df
+
+    df = df.copy()
+    df["fecha_subasta"] = pd.to_datetime(df["fecha_subasta"], errors="coerce")
+    df["precio_final_kg"] = pd.to_numeric(df["precio_final_kg"], errors="coerce")
+    df["peso_total_kg"] = pd.to_numeric(df["peso_total_kg"], errors="coerce")
+    df["cantidad_animales"] = pd.to_numeric(df["cantidad_animales"], errors="coerce")
+
+    if "tipo_subasta" not in df.columns:
+        df["tipo_subasta"] = None
+
+    df["tipo_subasta"] = df["tipo_subasta"].apply(lambda v: normalizar_tipo_subasta(v, feria))
+    df["procedencia"] = df["procedencia"].apply(lambda v: normalizar_procedencia(v, feria))
+
+    if feria == "Central Ganadera":
+        df = df[
+            ~(
+                df["procedencia"].str.contains("Barrancabermeja", case=False, na=False)
+                & (df["precio_final_kg"] > 20000)
+            )
+        ]
+
+    df = df.dropna(subset=["fecha_subasta", "precio_final_kg", "procedencia", "tipo_codigo"])
+
+    if "precio_total_cop" not in df.columns and "peso_total_kg" in df.columns:
+        df["precio_total_cop"] = df["peso_total_kg"] * df["precio_final_kg"]
+
+    return df
+
 # ── CARGA DE DATOS ────────────────────────────────────────────
 @st.cache_data(ttl=60 * 60 * 24)  # 24 horas — datos se actualizan semanalmente
 def cargar_datos() -> pd.DataFrame:
@@ -142,21 +180,8 @@ def cargar_datos() -> pd.DataFrame:
         df = pd.DataFrame(todas_las_filas)
         if df.empty:
             return pd.DataFrame()
-            
-        df["fecha_subasta"] = pd.to_datetime(df["fecha_subasta"])
-        
-        # FIX BARRANCABERMEJA: Limpiar anomalías de 'Barrancabermeja' (Precios  > 20k COP error OCR)
-        df = df[~((df["procedencia"].str.contains("Barrancabermeja", case=False, na=False)) & (df["precio_final_kg"] > 20000))]
 
-        # FIX PROCEDENCIAS INTERNAS: Agrupar "Entra de Gordo", "Entrada de Feria", etc.
-        # Todos los que empiecen por "Entra " o "Entrada "
-        es_entrada = df["procedencia"].str.contains(r"^Entra\s+|^Entrada\s+|^Entran\s+", case=False, na=False, regex=True)
-        df.loc[es_entrada, "procedencia"] = "Instalaciones Central Ganadera"
-
-        if "precio_total_cop" not in df.columns and "peso_total_kg" in df.columns:
-            df["precio_total_cop"] = df["peso_total_kg"] * df["precio_final_kg"]
-            
-        return df
+        return normalizar_dataframe_dashboard(df, feria=FERIA_CENTRAL)
     except Exception as e:
         st.error(f"Error conectando a Supabase: {e}")
         return pd.DataFrame()
@@ -181,7 +206,7 @@ def cargar_datos_casanare() -> pd.DataFrame:
     try:
         supabase = create_client(supabase_url, supabase_key)
         columnas = (
-            "fecha_subasta,numero_pdf,sexo_codigo,"
+            "fecha_subasta,numero_pdf,tipo_subasta,sexo_codigo,"
             "cantidad_animales,peso_total_kg,precio_final_kg,procedencia"
         )
         todas_las_filas = []
@@ -214,16 +239,8 @@ def cargar_datos_casanare() -> pd.DataFrame:
             return pd.DataFrame()
 
         df = df.rename(columns={"sexo_codigo": "tipo_codigo", "numero_pdf": "numero_boletin"})
-        df["tipo_subasta"] = "Casanare"
-        df["fecha_subasta"] = pd.to_datetime(df["fecha_subasta"])
-        df["precio_final_kg"] = pd.to_numeric(df["precio_final_kg"], errors="coerce")
-        df["peso_total_kg"] = pd.to_numeric(df["peso_total_kg"], errors="coerce")
-        df["cantidad_animales"] = pd.to_numeric(df["cantidad_animales"], errors="coerce")
 
-        if "precio_total_cop" not in df.columns and "peso_total_kg" in df.columns:
-            df["precio_total_cop"] = df["peso_total_kg"] * df["precio_final_kg"]
-
-        return df
+        return normalizar_dataframe_dashboard(df, feria=FERIA_CASANARE)
     except Exception as e:
         st.error(f"Error conectando a Supabase: {e}")
         return pd.DataFrame()
@@ -414,9 +431,15 @@ def sidebar_filtros(df: pd.DataFrame) -> tuple[pd.DataFrame, str]:
         if fechas[0] == fecha_inicio_auto and fechas[1] == fecha_max:
             fechas = (fecha_inicio_auto, fecha_max)
 
-    # 2. Tipo de subasta (Default = "Tradicional" primero)
-    tipos_subasta = ["Tradicional", "Todos"] + sorted([t for t in df["tipo_subasta"].dropna().unique() if t != "Tradicional"])
-    tipo_subasta = st.sidebar.selectbox("🏷️ Tipo de Subasta", tipos_subasta, index=0)
+    # 2. Tipo de subasta
+    tipos_subasta_disponibles = sorted(df["tipo_subasta"].dropna().unique().tolist())
+    if "Tradicional" in tipos_subasta_disponibles:
+        tipos_subasta = ["Tradicional", "Todos"] + [t for t in tipos_subasta_disponibles if t != "Tradicional"]
+        indice_default_tipo = 0
+    else:
+        tipos_subasta = ["Todos"] + tipos_subasta_disponibles
+        indice_default_tipo = 0
+    tipo_subasta = st.sidebar.selectbox("🏷️ Tipo de Subasta", tipos_subasta, index=indice_default_tipo)
 
     # 3. Tipo de animal (MC y ML por defecto)
     tipos_animal = sorted(df["tipo_codigo"].dropna().unique().tolist())

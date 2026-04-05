@@ -10,11 +10,20 @@ import io
 import re
 import time
 import logging
+import os
+import sys
 from datetime import date
 from typing import Optional
 
 import requests
 import pdfplumber
+
+_DIR_SCRIPT = os.path.dirname(os.path.abspath(__file__))
+_DIR_PROYECTO = os.path.join(_DIR_SCRIPT, "..")
+if _DIR_PROYECTO not in sys.path:
+    sys.path.insert(0, _DIR_PROYECTO)
+
+from shared.data_cleaning import FERIA_CASANARE, normalizar_procedencia, normalizar_tipo_subasta
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +100,7 @@ def parsear_pdf(contenido: bytes, numero_pdf: int) -> list[dict]:
                 # Extraer metadatos del header
                 m = _FERIA_RE.search(linea)
                 if m:
-                    meta["tipo_subasta"] = m.group(2).upper()
+                    meta["tipo_subasta"] = normalizar_tipo_subasta(m.group(2), FERIA_CASANARE)
                     meta["ciudad"] = m.group(3).strip().upper()
                     continue
 
@@ -118,7 +127,7 @@ def parsear_pdf(contenido: bytes, numero_pdf: int) -> list[dict]:
                         "cantidad_animales": int(m.group(3)),
                         "peso_total_kg": _parse_miles(m.group(4)),
                         "peso_promedio_kg": float(m.group(5)),
-                        "procedencia": m.group(6).strip().upper(),
+                        "procedencia": normalizar_procedencia(m.group(6), FERIA_CASANARE),
                         "hora_entrada": m.group(7),
                         "precio_base_kg": _parse_miles(m.group(8)),
                         "precio_final_kg": _parse_miles(m.group(9)),
