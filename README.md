@@ -106,6 +106,21 @@ Esto va a:
 
 ---
 
+## 🤖 Predictor MLOps en Streamlit
+
+La app incluye una capa liviana de inferencia en `modelo/predictor_mlops.py`:
+
+- **Central Ganadera de Medellín:** reutiliza los artefactos `.pkl` existentes en `modelo/`.
+- **Subasta General de Yopal, Casanare:** consume artefactos livianos exportados desde el trabajo `mlflow-deploy`; si no están presentes localmente, los descarga y cachea desde HuggingFace.
+- Streamlit no carga MLflow en runtime. MLflow queda como capa de entrenamiento, trazabilidad y validación.
+- Toda predicción muestra la advertencia: estimación basada en histórico, no recomendación de compra/venta.
+
+```bash
+streamlit run modelo/app.py
+```
+
+---
+
 ## ❓ Problemas frecuentes
 
 **El script no extrae datos de un PDF:**

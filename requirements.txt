@@ -15,7 +15,8 @@ numpy==1.26.4
 statsmodels>=0.14.0   # requerido por plotly trendline="ols"
 
 # Dashboard / Modelo
-scikit-learn==1.4.0
+scikit-learn==1.6.1
+joblib==1.4.2
 streamlit==1.31.0
 plotly==5.18.0
 shap==0.44.0

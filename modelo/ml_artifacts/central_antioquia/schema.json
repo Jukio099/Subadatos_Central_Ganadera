@@ -1,0 +1,19 @@
+{
+  "market_id": "central_antioquia",
+  "market_label": "Central Ganadera de Medellin, Antioquia",
+  "inputs": {
+    "tipo_subasta": "Tipo de subasta con modelo entrenado",
+    "tipo_codigo": "Categoria del animal",
+    "peso_promedio_kg": "Peso promedio estimado por animal",
+    "cantidad_animales": "Numero de animales del lote",
+    "fecha_subasta": "Fecha estimada de subasta",
+    "hora_subasta": "Hora estimada, usada por el modelo Central"
+  },
+  "outputs": {
+    "precio_kg": "Precio final estimado por kg en COP",
+    "rango_aproximado": "Precio estimado +/- MAE",
+    "precio_animal": "precio_kg * peso_promedio_kg",
+    "valor_lote": "precio_animal * cantidad_animales"
+  },
+  "disclaimer": "Estimacion basada en historico, no recomendacion de compra/venta."
+}

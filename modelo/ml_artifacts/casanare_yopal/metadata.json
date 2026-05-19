@@ -1,0 +1,23 @@
+{
+  "market_id": "casanare_yopal",
+  "market_label": "Subasta General de Yopal, Casanare",
+  "fuente": "Supabase -> subastas_casanare",
+  "model_type": "GradientBoostingRegressor",
+  "fecha_entrenamiento": "2026-05-18",
+  "registros_entrenamiento": 41035,
+  "features": [
+    "peso_promedio_kg",
+    "cantidad_animales",
+    "sexo_codigo_enc",
+    "mes",
+    "anio"
+  ],
+  "target": "precio_final_kg",
+  "rmse": 586.55,
+  "r2": 0.8154,
+  "artifact_urls": {
+    "model": "https://huggingface.co/spaces/JKO9003/predictor-subastas-casanare/resolve/main/Model/model.pkl",
+    "encoders": "https://huggingface.co/spaces/JKO9003/predictor-subastas-casanare/resolve/main/Model/encoders.pkl"
+  },
+  "notas": "Artefactos livianos exportados desde el trabajo mlflow-deploy. Streamlit descarga y cachea los .pkl si no estan presentes localmente."
+}

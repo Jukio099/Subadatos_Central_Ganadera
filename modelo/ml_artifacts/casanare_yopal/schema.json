@@ -1,0 +1,16 @@
+{
+  "market_id": "casanare_yopal",
+  "inputs": {
+    "sexo_codigo": "Categoria del ganado disponible antes de la subasta",
+    "peso_promedio_kg": "Peso promedio estimado por animal",
+    "cantidad_animales": "Numero de animales del lote",
+    "fecha_subasta": "Fecha estimada; se usan mes y anio"
+  },
+  "outputs": {
+    "precio_kg": "Precio final estimado por kg en COP",
+    "rango_aproximado": "Precio estimado +/- RMSE",
+    "precio_animal": "precio_kg * peso_promedio_kg",
+    "valor_lote": "precio_animal * cantidad_animales"
+  },
+  "disclaimer": "Estimacion basada en historico, no recomendacion de compra/venta."
+}
