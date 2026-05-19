@@ -8,7 +8,7 @@ import urllib.request
 from dataclasses import dataclass
 from datetime import date, datetime
 from functools import lru_cache
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any
 
 import numpy as np
@@ -114,10 +114,14 @@ def resolver_artefacto(ruta: str | os.PathLike[str] | None, raiz: Path = _DIR_MO
     if not ruta:
         raise FileNotFoundError("Ruta de artefacto vacia")
 
-    raw = Path(str(ruta))
+    ruta_str = str(ruta)
+    raw = Path(ruta_str)
+    raw_windows = PureWindowsPath(ruta_str)
     candidatos = [raw]
     if raw.name:
         candidatos.append(raiz / raw.name)
+    if raw_windows.name and raw_windows.name != raw.name:
+        candidatos.append(raiz / raw_windows.name)
     if not raw.is_absolute():
         candidatos.append(raiz / raw)
 
