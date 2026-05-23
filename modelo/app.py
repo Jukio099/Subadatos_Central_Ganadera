@@ -18,6 +18,7 @@ if _DIR_PROYECTO not in sys.path:
 from shared.data_cleaning import (
     FERIA_CASANARE,
     FERIA_CENTRAL,
+    FERIA_SUBASTAR,
     normalizar_procedencia,
     normalizar_tipo_subasta,
 )
@@ -47,8 +48,11 @@ PLOTLY_CONFIG = {
 GLOSARIO_TIPOS = {
     "MC": "Macho Ceba — toro gordo listo para sacrificio",
     "ML": "Macho Levante — novillo joven en crecimiento",
+    "TO": "Toro — macho adulto",
     "HV": "Hembra Vientre — vaca para cría o gestante",
     "HL": "Hembra Levante — novilla joven en crecimiento",
+    "VE": "Vaca escotera / vaca para ceba — validar significado exacto por fuente",
+    "VP": "Vaca parida — hembra con cría",
     "AT": "Añojo / Ternero — ternero menor de 1 año",
     "VH": "Vaca Horra — vaca sin cría y sin preñez",
     "T2": "Toro — semental reproductor adulto",
@@ -61,6 +65,9 @@ COLORES = {
     "HL": "#388E3C",   
     "MC": "#388E3C",   
     "ML": "#7B1FA2",   
+    "TO": "#00838F",
+    "VE": "#0288D1",
+    "VP": "#C62828",
     "AT": "#0288D1",   
     "VH": "#FFB300",   
     "T2": "#00838F",   
@@ -150,7 +157,7 @@ def obtener_credenciales_supabase() -> tuple[str, str]:
         st.stop()
 
 
-def cargar_tabla_supabase(tabla: str, columnas: str, order_col: str) -> pd.DataFrame:
+def cargar_tabla_supabase(tabla: str, columnas: str, order_col: str, price_col: str = "precio_final_kg") -> pd.DataFrame:
     supabase_url, supabase_key = obtener_credenciales_supabase()
 
     try:
@@ -160,10 +167,11 @@ def cargar_tabla_supabase(tabla: str, columnas: str, order_col: str) -> pd.DataF
         rango_fin = 999
 
         while True:
+            query = supabase.table(tabla).select(columnas)
+            if price_col:
+                query = query.gt(price_col, 0)
             respuesta = (
-                supabase.table(tabla)
-                .select(columnas)
-                .gt("precio_final_kg", 0)
+                query
                 .order(order_col)
                 .range(rango_inicio, rango_fin)
                 .execute()
@@ -212,6 +220,48 @@ def cargar_datos_casanare() -> pd.DataFrame:
     df = df.rename(columns={"sexo_codigo": "tipo_codigo", "numero_pdf": "numero_boletin"})
 
     return normalizar_dataframe_dashboard(df, feria=FERIA_CASANARE)
+
+
+@st.cache_data(ttl=60 * 60 * 24)
+def cargar_datos_subastar() -> pd.DataFrame:
+    """Carga precios agregados de Subastar y los adapta al esquema visual del dashboard.
+
+    Subastar no trae lotes individuales sino resumen por sede/evento/clasificación/tipo.
+    Para reutilizar las vistas actuales se mapea:
+    - fecha_evento -> fecha_subasta
+    - evento_id -> numero_boletin
+    - clasificacion -> tipo_subasta
+    - precio_promedio_kg -> precio_final_kg
+    - sede -> procedencia (funciona como filtro de plaza/sede)
+    """
+    columnas = (
+        "sede,anio,evento_id,fecha_evento,clasificacion,tipo_codigo,edad,"
+        "cantidad_animales,precio_max_kg,precio_min_kg,precio_promedio_kg,"
+        "peso_promedio_kg,valor_promedio_animal,url_fuente"
+    )
+    df = cargar_tabla_supabase("subastar_precios_resumen", columnas, order_col="fecha_evento", price_col="precio_promedio_kg")
+    if df.empty:
+        return pd.DataFrame()
+
+    df = df.rename(
+        columns={
+            "fecha_evento": "fecha_subasta",
+            "evento_id": "numero_boletin",
+            "clasificacion": "tipo_subasta",
+            "precio_promedio_kg": "precio_final_kg",
+            "sede": "procedencia",
+        }
+    )
+    df["peso_total_kg"] = pd.to_numeric(df["peso_promedio_kg"], errors="coerce") * pd.to_numeric(
+        df["cantidad_animales"], errors="coerce"
+    )
+    df["precio_total_cop"] = pd.to_numeric(df["valor_promedio_animal"], errors="coerce") * pd.to_numeric(
+        df["cantidad_animales"], errors="coerce"
+    )
+    df["procedencia"] = df["procedencia"].astype(str).str.title()
+    df["granularidad"] = "Resumen agregado por categoría"
+
+    return normalizar_dataframe_dashboard(df, feria=FERIA_SUBASTAR)
 
 # ── FUNCIONES DE GRÁFICAS (del SKILL) ─────────────────────────
 def grafica_serie_tiempo(df: pd.DataFrame) -> go.Figure:
@@ -450,9 +500,9 @@ def sidebar_filtros(df: pd.DataFrame) -> tuple[pd.DataFrame, str]:
             if codigo in tipos_animal:
                 st.markdown(f"**{codigo}** — {descripcion}")
 
-    # 4. Municipio
+    # 4. Municipio / sede
     municipios = ["Todos"] + sorted(df["procedencia"].dropna().unique().tolist())
-    municipio = st.sidebar.selectbox("📍 Municipio", municipios)
+    municipio = st.sidebar.selectbox("📍 Municipio / sede", municipios)
 
     # ── Aplicar filtros
     df_fil = df.copy()
@@ -797,11 +847,16 @@ def tab_contacto():
 def main():
     feria_sel = st.sidebar.selectbox(
         "🏠 Feria",
-        ["Central Ganadera", "Casanare"],
+        ["Central Ganadera", "Casanare", FERIA_SUBASTAR],
         index=0,
     )
 
-    cargador = cargar_datos_casanare if feria_sel == "Casanare" else cargar_datos
+    cargadores = {
+        "Central Ganadera": cargar_datos,
+        "Casanare": cargar_datos_casanare,
+        FERIA_SUBASTAR: cargar_datos_subastar,
+    }
+    cargador = cargadores[feria_sel]
 
     # Cargar datos
     with st.spinner(f"Conectando con Supabase y descargando históricos de {feria_sel}..."):
@@ -825,12 +880,14 @@ def main():
     )
     
     color_subtitulo = "#212121" if modo_color == "Claro" else "#E0E0E0"
-    subtitulo = (
-        "Inteligencia de precios y volumen de subastas en Antioquia"
-        if feria_sel == "Central Ganadera"
-        else "Inteligencia de precios y volumen de subastas en Casanare"
-    )
-    st.markdown(f"<p style='color:{color_subtitulo};'>{subtitulo}</p>", unsafe_allow_html=True)
+    subtitulos = {
+        "Central Ganadera": "Inteligencia de precios y volumen de subastas en Antioquia",
+        "Casanare": "Inteligencia de precios y volumen de subastas en Casanare",
+        FERIA_SUBASTAR: "Precios públicos agregados de Subastar por sede, clasificación y tipo",
+    }
+    st.markdown(f"<p style='color:{color_subtitulo};'>{subtitulos.get(feria_sel, '')}</p>", unsafe_allow_html=True)
+    if feria_sel == FERIA_SUBASTAR:
+        st.caption("Fuente: datos públicos consultados desde Subastar; procesamiento y visualización por SubaDatos. Filas agregadas por categoría, no lotes individuales.")
 
     if df_filtrado.empty:
         st.warning("⚠️ No hay datos para los filtros seleccionados. Intenta ampliar el rango.")
@@ -970,7 +1027,7 @@ def main():
 
     # ── Tab 6: Detalle
     with tab6:
-        st.subheader("Base de datos filtrada (Lotes individuales)")
+        st.subheader("Base de datos filtrada")
         mostrar_df = df_filtrado[[
             "fecha_subasta", "numero_boletin", "tipo_subasta", "tipo_codigo",
             "cantidad_animales", "peso_total_kg", "precio_final_kg", "procedencia"
@@ -981,14 +1038,16 @@ def main():
             hide_index=True,
             column_config={
                 "fecha_subasta": st.column_config.DateColumn("Fecha"),
+                "numero_boletin": "Evento / boletín",
                 "tipo_codigo": "Animal",
-                "cantidad_animales": st.column_config.NumberColumn("Cant.", format="%d"),
+                "tipo_subasta": "Subasta / clasificación",
+                "cantidad_animales": st.column_config.NumberColumn("Animales", format="%d"),
                 "peso_total_kg": st.column_config.NumberColumn("Peso Total (kg)", format="%.1f"),
-                "precio_final_kg": st.column_config.NumberColumn("Precio Final (COP/kg)", format="$%d"),
-                "procedencia": "Municipio"
+                "precio_final_kg": st.column_config.NumberColumn("Precio (COP/kg)", format="$%d"),
+                "procedencia": "Municipio / sede"
             }
         )
-        info_box("<strong>Tabla de lotes:</strong> Cada fila es un lote subastado individualmente. Usa los filtros del sidebar para reducir el conjunto. Haz clic en el encabezado de cualquier columna para ordenar. Descarga la tabla con el botón de la esquina superior derecha.")
+        info_box("<strong>Tabla de detalle:</strong> Cada fila corresponde al nivel de dato de la fuente seleccionada. En Central/Casanare son lotes; en Subastar son resúmenes agregados por sede, evento, clasificación y tipo. Usa los filtros del sidebar para reducir el conjunto.")
 
     # ── Tab 7: Predictor
     with tab7:

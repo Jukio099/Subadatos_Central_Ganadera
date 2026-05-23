@@ -3,6 +3,7 @@ import re
 
 FERIA_CENTRAL = "Central Ganadera"
 FERIA_CASANARE = "Casanare"
+FERIA_SUBASTAR = "Subastar"
 
 
 _CENTRAL_EQUIVALENCIAS = {
@@ -207,6 +208,8 @@ def normalizar_procedencia(valor, feria: str) -> str | None:
     texto = limpiar_texto(valor)
     if not texto:
         return None
+    if feria == FERIA_SUBASTAR:
+        return texto.upper().strip(" -/").title()
     if feria == FERIA_CASANARE:
         return _normalizar_casanare(texto)
     return _normalizar_central(texto)
