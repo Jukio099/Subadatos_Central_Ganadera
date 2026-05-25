@@ -62,24 +62,39 @@ GLOSARIO_TIPOS = {
 }
 
 # ── PALETA DE COLORES FIJOS ─────────────────────────────────
+# Paleta categórica — un color único por tipo de animal.
+# Anclada en la marca (verde #1B5E20 protagonista, morado #7B1FA2 acento).
 COLORES = {
-    "HV": "#1B5E20",   
-    "HL": "#388E3C",   
-    "MC": "#388E3C",   
-    "ML": "#7B1FA2",   
-    "TO": "#00838F",
-    "VE": "#0288D1",
-    "VP": "#C62828",
-    "AT": "#0288D1",   
-    "VH": "#FFB300",   
-    "T2": "#00838F",   
-    "R":  "#4E342E",   
+    "HV": "#1B5E20",   # Hembra Vientre — verde marca (protagonista)
+    "HL": "#66BB6A",   # Hembra Levante — verde claro
+    "MC": "#00695C",   # Macho Ceba — teal verdoso
+    "ML": "#7B1FA2",   # Macho Levante — morado marca
+    "TO": "#283593",   # Toro — índigo
+    "VE": "#0277BD",   # Vaca escotera/ceba — azul
+    "VP": "#C2185B",   # Vaca Parida — magenta
+    "AT": "#EF6C00",   # Añojo/Ternero — naranja
+    "VH": "#F9A825",   # Vaca Horra — ámbar
+    "T2": "#00838F",   # Toro semental — cian
+    "R":  "#5D4037",   # Reproductor — marrón tierra
 }
 
 COLOR_SEQUENCE = [
-    "#1B5E20", "#7B1FA2", "#0288D1", "#F57F17",
-    "#388E3C", "#C62828", "#00838F", "#4E342E"
+    "#1B5E20", "#7B1FA2", "#0277BD", "#EF6C00",
+    "#66BB6A", "#C2185B", "#00838F", "#5D4037",
 ]
+
+COLOR_ESCALA_VERDE = [
+    [0.0, "#F1F8E9"],
+    [0.5, "#66BB6A"],
+    [1.0, "#1B5E20"],
+]
+
+COLORES_TENDENCIA = {
+    "7 días": COLORES["ML"],
+    "30 días": COLORES["VE"],
+    "3 meses": COLORES["HL"],
+    "6 meses": COLORES["HV"],
+}
 
 # ── FUNCIÓN PARA ACTUALIZAR TEMPLATE PLOTLY SEGÚN TEMA ────────
 import plotly.io as pio
@@ -95,25 +110,47 @@ def aplicar_tema_plotly(modo: str):
     if pio.templates.default == clave:
         return
 
-    color_fondo = "#FFFFFF" if "Claro" in modo else "#F5F5F5"
+    color_fondo = "#FFFFFF"
     color_texto = "#212121"
 
     tmpl = go.layout.Template()
     tmpl.layout = go.Layout(
-        font=dict(family="Google Sans, Roboto, sans-serif", color=color_texto),
+        font=dict(family="Inter, Google Sans, Roboto, sans-serif", color=color_texto, size=13),
         paper_bgcolor="#FFFFFF",
         plot_bgcolor=color_fondo,
         colorway=COLOR_SEQUENCE,
-        title=dict(font=dict(size=16, color="#1B5E20", family="Google Sans")),
+        title=dict(font=dict(size=16, color="#1A1F1B", family="Inter")),
         legend=dict(
             orientation="h",
             yanchor="bottom", y=1.02,
             xanchor="right", x=1,
-            font=dict(size=11)
+            font=dict(size=11),
+            bgcolor="rgba(0,0,0,0)",
         ),
-        margin=dict(l=40, r=20, t=60, b=40),
-        hovermode="closest",   # Funciona mejor en táctil (sin hover real en móvil)
-        dragmode=False,        # Deshabilita drag-zoom: evita zoom accidental al tocar
+        margin=dict(l=48, r=20, t=60, b=44),
+        hovermode="x unified",
+        hoverlabel=dict(
+            bgcolor="#FFFFFF",
+            bordercolor="#E5E8EB",
+            font=dict(family="Inter", size=12, color="#1A1F1B"),
+        ),
+        xaxis=dict(
+            showgrid=False,
+            zeroline=False,
+            linecolor="#E5E8EB",
+            ticks="outside",
+            tickcolor="#E5E8EB",
+            tickfont=dict(color="#667085"),
+        ),
+        yaxis=dict(
+            showgrid=True,
+            gridcolor="#F0F2F4",
+            gridwidth=1,
+            zeroline=False,
+            linecolor="rgba(0,0,0,0)",
+            tickfont=dict(color="#667085"),
+        ),
+        dragmode=False,
     )
     pio.templates[clave] = tmpl
     pio.templates.default = clave
@@ -286,11 +323,13 @@ def grafica_serie_tiempo(df: pd.DataFrame) -> go.Figure:
         }
     )
     fig.update_traces(
+        mode="lines+markers",
+        marker=dict(size=5),
         line=dict(width=2.5),
         hovertemplate="<b>%{x}</b><br>Precio: $%{y:,.0f} COP/kg<extra></extra>"
     )
     fig.update_xaxes(rangeslider_visible=False, title="Fecha")
-    fig.update_yaxes(title="Precio promedio (COP/kg)")
+    fig.update_yaxes(title="Precio promedio (COP/kg)", tickprefix="$", tickformat="~s")
     return fig
 
 def grafica_barras_municipio(df: pd.DataFrame, top_n: int = 15) -> go.Figure:
@@ -334,7 +373,7 @@ def grafica_volumen_semanal(df: pd.DataFrame) -> go.Figure:
         y="precio_total_cop",
         title="Volumen transado por semana",
         labels={"semana": "Semana", "precio_total_cop": "Millones COP"},
-        color_discrete_sequence=["#388E3C"]
+        color_discrete_sequence=[COLORES["HV"]]
     )
     fig.update_traces(hovertemplate="<b>%{x}</b><br>Total: $%{y:,.1f}M COP<extra></extra>")
     fig.update_xaxes(title="Semana")
@@ -364,13 +403,14 @@ def grafica_estacionalidad(df: pd.DataFrame) -> go.Figure:
     
     fig = px.imshow(
         df_heat,
-        # Paleta del proyecto: morado (precio bajo) → verde (precio alto)
-        color_continuous_scale=["#7B1FA2", "#9C4DCC", "#B2DFDB", "#388E3C", "#1B5E20"],
+        color_continuous_scale=COLOR_ESCALA_VERDE,
+        aspect="auto",
         title="Estacionalidad — Precio promedio por mes y tipo",
         labels=dict(color="COP/kg", x="Mes", y="Tipo")
     )
     # Formato de texto del heatmap a COP/kg aproximado
-    fig.update_traces(texttemplate="$%{z:,.0f}")
+    fig.update_coloraxes(showscale=True)
+    fig.update_traces(texttemplate="$%{z:.2s}")
     return fig
 
 @st.cache_data(show_spinner=False)
@@ -651,8 +691,9 @@ def tab_ultima_subasta(df: pd.DataFrame):
             title="Evolución del precio durante la subasta",
             labels={"orden": "Orden del lote", "precio_final_kg": "Precio (COP/kg)", "tipo_codigo": "Tipo"},
         )
-        fig2.update_traces(line=dict(width=2.5))
+        fig2.update_traces(mode="lines+markers", marker=dict(size=5), line=dict(width=2.5))
         fig2.update_traces(hovertemplate="<b>Lote %{x}</b><br>Precio: $%{y:,.0f} COP/kg<extra></extra>")
+        fig2.update_yaxes(tickprefix="$", tickformat="~s")
         st.plotly_chart(fig2, use_container_width=True, config=PLOTLY_CONFIG)
         info_box("<strong>Precio por orden de lote:</strong> Muestra si el precio subió o bajó a medida que avanzó la subasta. Una pendiente positiva indica que el mercado 'se calentó'; negativa, que la oferta superó la demanda hacia el final.")
 
@@ -757,11 +798,12 @@ def tab_tendencias(df: pd.DataFrame):
         df_plot, x="fecha_subasta", y="precio_final_kg", color="ventana",
         title="Evolución del precio promedio por ventana de tiempo",
         labels={"fecha_subasta": "Fecha", "precio_final_kg": "Precio prom. (COP/kg)", "ventana": "Período"},
-        color_discrete_sequence=["#7B1FA2", "#0288D1", "#388E3C", "#1B5E20"],
+        color_discrete_map=COLORES_TENDENCIA,
     )
-    fig.update_traces(line=dict(width=2.5))
+    fig.update_traces(mode="lines+markers", marker=dict(size=5), line=dict(width=2.5))
     fig.update_traces(hovertemplate="<b>%{x}</b><br>$%{y:,.0f} COP/kg<extra></extra>")
     fig.update_xaxes(rangeslider_visible=False)
+    fig.update_yaxes(tickprefix="$", tickformat="~s")
     st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
     info_box(
         "<strong>Tendencias de precio:</strong> Cada línea muestra el precio promedio diario para una ventana de tiempo. "
@@ -1017,7 +1059,7 @@ def main():
             info_box("<strong>Volumen semanal:</strong> Total de dinero (millones COP) movilizado cada semana en subastas. Barras altas indican temporadas de alta actividad; caídas abruptas pueden señalar factores externos como épocas de lluvia, festivos o menor oferta.")
         with col_vol2:
             st.plotly_chart(grafica_estacionalidad(df_filtrado), use_container_width=True, config=PLOTLY_CONFIG)
-            info_box("<strong>Mapa de estacionalidad:</strong> Cada celda muestra el precio promedio COP/kg para ese tipo de animal ese mes. <span style='color:#7B1FA2; font-weight:600;'>■ Morado = precio bajo</span> · <span style='color:#1B5E20; font-weight:600;'>■ Verde = precio alto.</span> Identifica en qué meses cotiza mejor cada categoría.")
+            info_box("<strong>Mapa de estacionalidad:</strong> Cada celda muestra el precio promedio COP/kg para ese tipo de animal ese mes. <span style='color:#66BB6A; font-weight:600;'>■ Verde claro = precio bajo/medio</span> · <span style='color:#1B5E20; font-weight:600;'>■ Verde oscuro = precio alto.</span> Identifica en qué meses cotiza mejor cada categoría.")
 
     # ── Tab 5: Municipios
     with tab5:
