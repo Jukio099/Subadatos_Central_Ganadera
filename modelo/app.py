@@ -15,6 +15,7 @@ _DIR_PROYECTO = os.path.join(_DIR_SCRIPT, "..")
 if _DIR_PROYECTO not in sys.path:
     sys.path.insert(0, _DIR_PROYECTO)
 
+from modelo.estilos import aplicar_estilos_globales
 from shared.data_cleaning import (
     FERIA_CASANARE,
     FERIA_CENTRAL,
@@ -36,6 +37,7 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+aplicar_estilos_globales()
 
 # ── CONFIG PLOTLY: sin zoom accidental, doble clic resetea ───
 PLOTLY_CONFIG = {
