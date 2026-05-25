@@ -43,7 +43,8 @@ aplicar_estilos_globales()
 PLOTLY_CONFIG = {
     "scrollZoom": False,          # Evita zoom con scroll del mouse/trackpad
     "doubleClick": "reset+autosize",  # Doble clic vuelve a la vista completa
-    "displayModeBar": "hover",    # Barra de herramientas solo al pasar el cursor
+    "displayModeBar": False,      # Oculta iconos flotantes de cámara/zoom/pan
+    "displaylogo": False,
 }
 
 # ── GLOSARIO DE TIPOS DE ANIMAL ───────────────────────────────
@@ -91,7 +92,7 @@ COLOR_ESCALA_VERDE = [
 
 COLORES_TENDENCIA = {
     "7 días": COLORES["ML"],
-    "30 días": COLORES["VE"],
+    "1 mes": COLORES["VE"],
     "3 meses": COLORES["HL"],
     "6 meses": COLORES["HV"],
 }
@@ -347,13 +348,19 @@ def grafica_barras_municipio(df: pd.DataFrame, top_n: int = 15) -> go.Figure:
         orientation="h",
         title=f"Top {top_n} municipios por precio promedio",
         labels={"precio_final_kg": "Precio promedio (COP/kg)", "procedencia": "Municipio"},
-        color="precio_final_kg",
-        color_continuous_scale=["#81C784", "#1B5E20"]
     )
-    fig.update_coloraxes(showscale=False)
-    fig.update_traces(hovertemplate="<b>%{y}</b><br>Precio: $%{x:,.0f} COP/kg<extra></extra>")
-    fig.update_xaxes(title="Precio promedio (COP/kg)")
+    max_precio = df_mun["precio_final_kg"].max()
+    colores_barras = ["#1B5E20" if precio == max_precio else "#66BB6A" for precio in df_mun["precio_final_kg"]]
+    fig.update_traces(
+        marker_color=colores_barras,
+        texttemplate="$%{x:,.0f}",
+        textposition="outside",
+        cliponaxis=False,
+        hovertemplate="<b>%{y}</b><br>Precio: $%{x:,.0f} COP/kg<extra></extra>",
+    )
+    fig.update_xaxes(title="Precio promedio (COP/kg)", tickprefix="$", tickformat="~s")
     fig.update_yaxes(title="")
+    fig.update_layout(showlegend=False, margin=dict(r=72))
     return fig
 
 def grafica_volumen_semanal(df: pd.DataFrame) -> go.Figure:
@@ -561,6 +568,7 @@ def sidebar_filtros(df: pd.DataFrame) -> tuple[pd.DataFrame, str]:
         df_fil = df_fil[df_fil["procedencia"] == municipio]
 
     st.sidebar.markdown("---")
+    st.sidebar.caption("Tip: doble clic sobre una gráfica para volver a la vista completa.")
     # Indicador visual del período activo
     fecha_desde, fecha_hasta = fechas[0], fechas[1]
     st.sidebar.markdown(
@@ -619,26 +627,23 @@ def mostrar_kpis(df: pd.DataFrame):
             f"${total_cop:,.1f}M",
         )
 
-# ── CAJA DE AYUDA (fondo morado paleta del proyecto) ──────────
+# ── CAJA DE AYUDA (superficie neutra con acento de marca) ─────
 def info_box(texto: str):
-    """Renderiza una caja informativa con fondo morado suave (paleta del proyecto)."""
+    """Renderiza una caja informativa legible, sin bloques morados grandes."""
     st.markdown(
         f"""
         <div style="
-            background-color:#EDE7F6;
-            border-left:4px solid #7B1FA2;
-            border-radius:6px;
+            background-color:#F7F8FA;
+            border:1px solid #E5E8EB;
+            border-left:4px solid #1B5E20;
+            border-radius:10px;
             padding:12px 16px;
-            margin:6px 0 12px 0;
-            color:#212121;
+            margin:8px 0 14px 0;
+            color:#1A1F1B;
             font-size:0.88rem;
             line-height:1.6;
         ">
         💡 {texto}
-        <br><span style="font-size:0.80rem; color:#6A1B9A; margin-top:6px; display:block;">
-        🔍 <em>Tip: si la gráfica se acercó sin querer, haz <strong>doble clic</strong> sobre ella para volver a la vista completa.
-        Usa el ícono <strong>↗</strong> (esquina superior derecha) para pantalla completa.</em>
-        </span>
         </div>
         """,
         unsafe_allow_html=True,
@@ -659,7 +664,7 @@ def tab_ultima_subasta(df: pd.DataFrame):
         return
 
     st.markdown(
-        f"<h3 style='color:#7B1FA2;'>📋 Subasta del {fecha_ultima.strftime('%d %b %Y')}</h3>",
+        f"<h3 style='color:#1B5E20;'>📋 Subasta del {fecha_ultima.strftime('%d %b %Y')}</h3>",
         unsafe_allow_html=True
     )
     st.caption(f"{len(df_sub):,} lotes · {df_sub['cantidad_animales'].sum():,.0f} animales · Precio prom. ${df_sub['precio_final_kg'].mean():,.0f} COP/kg")
@@ -763,7 +768,7 @@ def tab_tendencias(df: pd.DataFrame):
     ]
 
     # Métricas delta en fila
-    st.markdown("<h4 style='color:#7B1FA2; margin-bottom:4px;'>Variación del precio promedio</h4>", unsafe_allow_html=True)
+    st.markdown("<h4 style='color:#1B5E20; margin-bottom:4px;'>Variación del precio promedio</h4>", unsafe_allow_html=True)
     cols = st.columns(4)
     for col, (dias, etiqueta) in zip(cols, ventanas):
         precio_act, precio_ant, pct = calcular_tendencia(df, dias)
@@ -872,8 +877,8 @@ def tab_contacto():
     with col_info:
         st.markdown(
             """
-            <div style="background:#EDE7F6; border-left:4px solid #7B1FA2; border-radius:6px;
-                        padding:16px; margin-top:8px; font-size:0.88rem; color:#212121; line-height:1.7;">
+            <div style="background:#F7F8FA; border:1px solid #E5E8EB; border-left:4px solid #1B5E20; border-radius:10px;
+                        padding:16px; margin-top:8px; font-size:0.88rem; color:#1A1F1B; line-height:1.7;">
             <strong>\u00bfPor qu\u00e9 compartir tu correo?</strong><br><br>
             Si nos dejas tu email te avisaremos de:<br>
             \U0001f4ca Nuevos an\u00e1lisis de mercado<br>
@@ -945,6 +950,9 @@ def main():
     st.markdown(
         """
         <style>
+        /* ── Sidebar: ocultar navegación multipágina automática de Streamlit ── */
+        [data-testid="stSidebarNav"] { display: none !important; }
+
         /* ── TABS: tamaño legible en desktop ── */
         [data-baseweb="tab"] button p {
             font-size: 1rem !important;
@@ -1063,11 +1071,8 @@ def main():
 
     # ── Tab 5: Municipios
     with tab5:
-        colA, colB = st.columns([2, 1])
-        with colA:
-            st.plotly_chart(grafica_barras_municipio(df_filtrado), use_container_width=True, config=PLOTLY_CONFIG)
-        with colB:
-            info_box("<strong>Precio por municipio:</strong> Ranking de los municipios con mayor precio promedio por kg. Los municipios con precios más altos suelen aportar animales de ceba (MC) con mayor peso y mejor genética. Cruza con el filtro de <em>Tipo de Animal</em> en el sidebar para análisis más específico.")
+        st.plotly_chart(grafica_barras_municipio(df_filtrado), use_container_width=True, config=PLOTLY_CONFIG)
+        info_box("<strong>Precio por municipio:</strong> Ranking de los municipios con mayor precio promedio por kg. Los municipios con precios más altos suelen aportar animales de ceba (MC) con mayor peso y mejor genética. Cruza con el filtro de <em>Tipo de Animal</em> en el sidebar para análisis más específico.")
 
     # ── Tab 6: Detalle
     with tab6:
@@ -1102,12 +1107,11 @@ def main():
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown(
         """
-        <div style="background: linear-gradient(135deg,#7B1FA2,#4A148C);
-                    border-radius:12px; padding:20px 28px; color:white;
-                    text-align:center; margin:12px 0 4px 0;">
-          <h3 style="margin:0 0 4px 0; color:white;">📬 ¿Cómo podemos mejorar?</h3>
-          <p style="margin:0; opacity:0.88; font-size:0.95rem;">
-            Tu opinión es clave. Déjanos un mensaje y si quieres, tu correo para mantenerte al tanto
+        <div style="background:#F1F8E9; border:1px solid #E5E8EB; border-left:4px solid #1B5E20;
+                    border-radius:12px; padding:18px 22px; margin:12px 0 4px 0;">
+          <h3 style="margin:0 0 4px 0; color:#1B5E20; font-weight:600;">¿Cómo podemos mejorar?</h3>
+          <p style="margin:0; color:#5F6B62; font-size:0.95rem;">
+            Tu opinión es clave. Déjanos un mensaje y, si quieres, tu correo para avisarte
             de nuevas funciones y análisis de mercado.
           </p>
         </div>
