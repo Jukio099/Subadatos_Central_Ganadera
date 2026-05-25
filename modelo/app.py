@@ -950,9 +950,6 @@ def main():
     st.markdown(
         """
         <style>
-        /* ── Sidebar: ocultar navegación multipágina automática de Streamlit ── */
-        [data-testid="stSidebarNav"] { display: none !important; }
-
         /* ── TABS: tamaño legible en desktop ── */
         [data-baseweb="tab"] button p {
             font-size: 1rem !important;
