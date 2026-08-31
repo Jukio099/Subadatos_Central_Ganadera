@@ -19,7 +19,7 @@ from modelo.predictor_mlops import (  # noqa: E402
     predecir_lote,
     valor_finito,
 )
-from shared.data_cleaning import (  # noqa: E402
+from modelo.data_cleaning import (  # noqa: E402
     FERIA_CASANARE,
     FERIA_CENTRAL,
     filtrar_lotes_comerciales,

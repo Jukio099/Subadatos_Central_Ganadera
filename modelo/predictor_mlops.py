@@ -20,7 +20,10 @@ _DIR_PROYECTO = str(_DIR_MODELO.parent)
 if _DIR_PROYECTO not in sys.path:
     sys.path.insert(0, _DIR_PROYECTO)
 
-from shared.data_cleaning import filtrar_lotes_comerciales
+try:
+    from data_cleaning import filtrar_lotes_comerciales
+except ImportError:
+    from modelo.data_cleaning import filtrar_lotes_comerciales
 
 _ARTIFACTS_DIR = _DIR_MODELO / "ml_artifacts"
 

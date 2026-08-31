@@ -15,8 +15,8 @@ _DIR_PROYECTO = os.path.join(_DIR_SCRIPT, "..")
 if _DIR_PROYECTO not in sys.path:
     sys.path.insert(0, _DIR_PROYECTO)
 
-from modelo.estilos import aplicar_estilos_globales
-from shared.data_cleaning import (
+from estilos import aplicar_estilos_globales
+from data_cleaning import (
     FERIA_CASANARE,
     FERIA_CENTRAL,
     FERIA_SUBASTAR,
