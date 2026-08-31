@@ -14,6 +14,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from shared.data_cleaning import filtrar_lotes_comerciales
+
 
 _DIR_MODELO = Path(__file__).resolve().parent
 _ARTIFACTS_DIR = _DIR_MODELO / "ml_artifacts"
@@ -409,6 +411,9 @@ def calcular_resumen_ejecutivo(df: pd.DataFrame, feria: str) -> dict[str, Any]:
     work["precio_final_kg"] = pd.to_numeric(work["precio_final_kg"], errors="coerce")
     work["cantidad_animales"] = pd.to_numeric(work["cantidad_animales"], errors="coerce").fillna(0)
     work = work.dropna(subset=["fecha_subasta", "precio_final_kg"])
+    work = filtrar_lotes_comerciales(work)
+    if work.empty:
+        return {"lectura": "No hay lotes bovinos con precio/kg válido para el resumen."}
 
     cat_top = work.groupby("tipo_codigo")["precio_final_kg"].mean().sort_values(ascending=False)
     municipio_top = work.groupby("procedencia")["precio_final_kg"].mean().sort_values(ascending=False)
@@ -429,8 +434,11 @@ def calcular_resumen_ejecutivo(df: pd.DataFrame, feria: str) -> dict[str, Any]:
         comp = comp[comp["anterior"] > 0]
         if not comp.empty:
             comp["pct"] = (comp["actual"] - comp["anterior"]) / comp["anterior"] * 100
-            variacion_cat = str(comp["pct"].abs().idxmax())
-            variacion_pct = float(comp.loc[variacion_cat, "pct"])
+            # Ignora saltos imposibles (casi siempre son categorías con 1-2 lotes sucios)
+            comp = comp[comp["pct"].abs() <= 80]
+            if not comp.empty:
+                variacion_cat = str(comp["pct"].abs().idxmax())
+                variacion_pct = float(comp.loc[variacion_cat, "pct"])
 
     categoria = str(cat_top.index[0]) if not cat_top.empty else "N/D"
     municipio = str(municipio_top.index[0]) if not municipio_top.empty else "N/D"

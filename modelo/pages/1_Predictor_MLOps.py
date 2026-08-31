@@ -22,6 +22,7 @@ from modelo.predictor_mlops import (  # noqa: E402
 from shared.data_cleaning import (  # noqa: E402
     FERIA_CASANARE,
     FERIA_CENTRAL,
+    filtrar_lotes_comerciales,
     normalizar_procedencia,
     normalizar_tipo_subasta,
 )
@@ -79,7 +80,8 @@ def _normalizar_dashboard(df: pd.DataFrame, feria: str) -> pd.DataFrame:
     df["tipo_subasta"] = df["tipo_subasta"].apply(lambda v: normalizar_tipo_subasta(v, feria))
     df["procedencia"] = df["procedencia"].apply(lambda v: normalizar_procedencia(v, feria))
     df["precio_total_cop"] = df["peso_total_kg"] * df["precio_final_kg"]
-    return df.dropna(subset=["fecha_subasta", "precio_final_kg", "procedencia", "tipo_codigo"])
+    limpio = df.dropna(subset=["fecha_subasta", "precio_final_kg", "procedencia", "tipo_codigo"])
+    return filtrar_lotes_comerciales(limpio)
 
 
 @st.cache_data(ttl=60 * 60 * 24)

@@ -146,9 +146,27 @@ def subir_a_supabase(df: pd.DataFrame, tabla: str = "subastas", batch_size: int 
             stats["exitosos"] += len(lote)
             print(f"  ✅ Lote {i // batch_size + 1}: {len(lote)} registros ({insertados}/{total})")
         except Exception as e:
-            stats["fallidos"] += len(lote)
-            stats["errores"].append(str(e))
-            print(f"  ❌ Error en lote {i // batch_size + 1}: {e}")
+            # Si el lote falla (p. ej. choque con otra restricción única como
+            # unique_lote_boletin), reintenta fila por fila para no descartar
+            # 200 registros por un solo duplicado.
+            print(f"  ⚠️  Lote {i // batch_size + 1} falló en bloque; reintentando fila por fila...")
+            saltados = 0
+            for registro in lote:
+                try:
+                    supabase.table(tabla).upsert(
+                        [registro], on_conflict="archivo_fuente,numero_lote"
+                    ).execute()
+                    insertados += 1
+                    stats["exitosos"] += 1
+                except Exception as e_fila:
+                    if "23505" in str(e_fila) or "duplicate key" in str(e_fila):
+                        saltados += 1
+                    else:
+                        stats["fallidos"] += 1
+                        stats["errores"].append(str(e_fila))
+            stats.setdefault("saltados_duplicados", 0)
+            stats["saltados_duplicados"] += saltados
+            print(f"     → recuperado: {len(lote) - saltados - 0} insertadas, {saltados} duplicados saltados")
     
     print(f"\n✅ Carga completada: {insertados} registros en '{tabla}'")
     return stats

@@ -204,6 +204,37 @@ def _normalizar_casanare(texto: str) -> str:
     return texto_upper.title()
 
 
+# Precios por kilo en pie. Los PDFs de equinos/mulares a veces guardan
+# el valor del animal (millones) en precio_final_kg y rompen el dashboard.
+PRECIO_KG_MIN = 1_500
+PRECIO_KG_MAX = 40_000
+TIPOS_SUBASTA_NO_BOVINOS = {"Equina", "Mulares"}
+CODIGOS_PRECIO_POR_CABEZA = {"M1", "M2", "M3", "P1", "P2", "C", "Y"}
+
+
+def es_precio_kg_valido(precio) -> bool:
+    try:
+        valor = float(precio)
+    except (TypeError, ValueError):
+        return False
+    return PRECIO_KG_MIN <= valor <= PRECIO_KG_MAX
+
+
+def filtrar_lotes_comerciales(df):
+    """Quita lotes cuyo 'precio/kg' es en realidad precio por cabeza u outlier."""
+    if df is None or getattr(df, "empty", True):
+        return df
+    work = df.copy()
+    if "precio_final_kg" in work.columns:
+        precios = work["precio_final_kg"]
+        work = work[precios.map(es_precio_kg_valido)]
+    if "tipo_subasta" in work.columns:
+        work = work[~work["tipo_subasta"].isin(TIPOS_SUBASTA_NO_BOVINOS)]
+    if "tipo_codigo" in work.columns:
+        work = work[~work["tipo_codigo"].astype(str).str.upper().isin(CODIGOS_PRECIO_POR_CABEZA)]
+    return work.reset_index(drop=True)
+
+
 def normalizar_procedencia(valor, feria: str) -> str | None:
     texto = limpiar_texto(valor)
     if not texto:

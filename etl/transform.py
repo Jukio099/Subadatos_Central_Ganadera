@@ -314,7 +314,7 @@ def parsear_lineas_pdf(texto_pagina: str, nombre_archivo: str = "") -> list[dict
 
     # ── 1. REGEX ESTRICTO (con campo hora) ────────────────────────────────────
     _PATRON_ESTRICTO = re.compile(
-        r'^\s*(\d{1,3})\s+'                         # Lote
+        r'^\s*(\d{1,3})\s*'                         # Lote (a veces pegado al tipo: "001HV")
         r'([A-Z][A-Z0-9]?)\s+'                      # Tipo (HV, ML, R…)
         r'(\d+)\s+'                                  # Cantidad
         r'([\d\.]+)\s+'                              # P.Total (kg)
@@ -353,7 +353,7 @@ def parsear_lineas_pdf(texto_pagina: str, nombre_archivo: str = "") -> list[dict
     # ── 2. REGEX FALLBACK (sin campo hora) ────────────────────────────────────
     # Cubre PDFs donde la columna de hora está ausente o en formato diferente.
     _PATRON_FALLBACK = re.compile(
-        r'^\s*(\d{1,3})\s+'                         # Lote
+        r'^\s*(\d{1,3})\s*'                         # Lote (a veces pegado al tipo: "001HV")
         r'([A-Z][A-Z0-9]?)\s+'                      # Tipo
         r'(\d+)\s+'                                  # Cantidad
         r'([\d\.]+)\s+'                              # P.Total

@@ -20,6 +20,7 @@ from shared.data_cleaning import (
     FERIA_CASANARE,
     FERIA_CENTRAL,
     FERIA_SUBASTAR,
+    filtrar_lotes_comerciales,
     normalizar_procedencia,
     normalizar_tipo_subasta,
 )
@@ -174,6 +175,7 @@ def normalizar_dataframe_dashboard(df: pd.DataFrame, feria: str) -> pd.DataFrame
     df["procedencia"] = df["procedencia"].apply(lambda v: normalizar_procedencia(v, feria))
 
     df = df.dropna(subset=["fecha_subasta", "precio_final_kg", "procedencia", "tipo_codigo"])
+    df = filtrar_lotes_comerciales(df)
 
     if "precio_total_cop" not in df.columns and "peso_total_kg" in df.columns:
         df["precio_total_cop"] = df["peso_total_kg"] * df["precio_final_kg"]
@@ -197,7 +199,14 @@ def obtener_credenciales_supabase() -> tuple[str, str]:
         st.stop()
 
 
-def cargar_tabla_supabase(tabla: str, columnas: str, order_col: str, price_col: str = "precio_final_kg") -> pd.DataFrame:
+def cargar_tabla_supabase(
+    tabla: str,
+    columnas: str,
+    order_col: str,
+    price_col: str = "precio_final_kg",
+    desde: str | None = None,
+    filtros: dict | None = None,
+) -> pd.DataFrame:
     supabase_url, supabase_key = obtener_credenciales_supabase()
 
     try:
@@ -210,9 +219,14 @@ def cargar_tabla_supabase(tabla: str, columnas: str, order_col: str, price_col: 
             query = supabase.table(tabla).select(columnas)
             if price_col:
                 query = query.gt(price_col, 0)
+            if desde:
+                query = query.gte(order_col, desde)
+            if filtros:
+                for col, valor in filtros.items():
+                    query = query.eq(col, valor)
             respuesta = (
                 query
-                .order(order_col)
+                .order(order_col, desc=True)
                 .range(rango_inicio, rango_fin)
                 .execute()
             )
@@ -235,25 +249,25 @@ def cargar_tabla_supabase(tabla: str, columnas: str, order_col: str, price_col: 
         return pd.DataFrame()
 
 # ── CARGA DE DATOS ────────────────────────────────────────────
-@st.cache_data(ttl=60 * 60 * 24)  # 24 horas — datos se actualizan semanalmente
-def cargar_datos() -> pd.DataFrame:
-    """Carga todos los datos de Supabase y los retorna como DataFrame."""
+@st.cache_data(ttl=60 * 60 * 6, show_spinner=False)
+def cargar_datos(desde: str | None = None) -> pd.DataFrame:
+    """Carga datos de Central. `desde` recorta en el servidor para abrir más rápido."""
     columnas = "fecha_subasta,numero_boletin,tipo_subasta,tipo_codigo,cantidad_animales,peso_total_kg,precio_final_kg,procedencia"
-    df = cargar_tabla_supabase("subastas", columnas, order_col="fecha_subasta")
+    df = cargar_tabla_supabase("subastas", columnas, order_col="fecha_subasta", desde=desde)
     if df.empty:
         return pd.DataFrame()
 
     return normalizar_dataframe_dashboard(df, feria=FERIA_CENTRAL)
 
 
-@st.cache_data(ttl=60 * 60 * 24)
-def cargar_datos_casanare() -> pd.DataFrame:
+@st.cache_data(ttl=60 * 60 * 6, show_spinner=False)
+def cargar_datos_casanare(desde: str | None = None) -> pd.DataFrame:
     """Carga datos de subastas_casanare y los normaliza al esquema del dashboard."""
     columnas = (
         "fecha_subasta,numero_pdf,tipo_subasta,sexo_codigo,"
         "cantidad_animales,peso_total_kg,precio_final_kg,procedencia"
     )
-    df = cargar_tabla_supabase("subastas_casanare", columnas, order_col="fecha_subasta")
+    df = cargar_tabla_supabase("subastas_casanare", columnas, order_col="fecha_subasta", desde=desde)
     if df.empty:
         return pd.DataFrame()
 
@@ -262,8 +276,8 @@ def cargar_datos_casanare() -> pd.DataFrame:
     return normalizar_dataframe_dashboard(df, feria=FERIA_CASANARE)
 
 
-@st.cache_data(ttl=60 * 60 * 24)
-def cargar_datos_subastar() -> pd.DataFrame:
+@st.cache_data(ttl=60 * 60 * 6, show_spinner=False)
+def cargar_datos_subastar(desde: str | None = None) -> pd.DataFrame:
     """Carga precios agregados de Subastar y los adapta al esquema visual del dashboard.
 
     Subastar no trae lotes individuales sino resumen por sede/evento/clasificación/tipo.
@@ -279,7 +293,14 @@ def cargar_datos_subastar() -> pd.DataFrame:
         "cantidad_animales,precio_max_kg,precio_min_kg,precio_promedio_kg,"
         "peso_promedio_kg,valor_promedio_animal,url_fuente"
     )
-    df = cargar_tabla_supabase("subastar_precios_resumen", columnas, order_col="fecha_evento", price_col="precio_promedio_kg")
+    df = cargar_tabla_supabase(
+        "subastar_precios_resumen",
+        columnas,
+        order_col="fecha_evento",
+        price_col="precio_promedio_kg",
+        desde=desde,
+        filtros={"fuente": "subastar"},
+    )
     if df.empty:
         return pd.DataFrame()
 
@@ -304,7 +325,15 @@ def cargar_datos_subastar() -> pd.DataFrame:
     return normalizar_dataframe_dashboard(df, feria=FERIA_SUBASTAR)
 
 # ── FUNCIONES DE GRÁFICAS (del SKILL) ─────────────────────────
+def _figura_vacia(titulo: str) -> go.Figure:
+    fig = go.Figure()
+    fig.update_layout(title=titulo, annotations=[dict(text="Sin datos para estos filtros", showarrow=False, font=dict(size=14, color="#667085"))])
+    return fig
+
+
 def grafica_serie_tiempo(df: pd.DataFrame) -> go.Figure:
+    if df.empty:
+        return _figura_vacia("Precio histórico promedio por tipo de animal")
     df_agrupado = (
         df.groupby(["fecha_subasta", "tipo_codigo"])["precio_final_kg"]
         .mean()
@@ -334,6 +363,8 @@ def grafica_serie_tiempo(df: pd.DataFrame) -> go.Figure:
     return fig
 
 def grafica_barras_municipio(df: pd.DataFrame, top_n: int = 15) -> go.Figure:
+    if df.empty:
+        return _figura_vacia(f"Top {top_n} municipios por precio promedio")
     df_mun = (
         df.groupby("procedencia")["precio_final_kg"]
         .mean()
@@ -364,6 +395,8 @@ def grafica_barras_municipio(df: pd.DataFrame, top_n: int = 15) -> go.Figure:
     return fig
 
 def grafica_volumen_semanal(df: pd.DataFrame) -> go.Figure:
+    if df.empty:
+        return _figura_vacia("Volumen transado por semana")
     # assign() evita df.copy() — no muta el df original y es más rápido
     df_temp = df.assign(
         semana=pd.to_datetime(df["fecha_subasta"]).dt.to_period("W").dt.start_time
@@ -388,6 +421,8 @@ def grafica_volumen_semanal(df: pd.DataFrame) -> go.Figure:
     return fig
 
 def grafica_estacionalidad(df: pd.DataFrame) -> go.Figure:
+    if df.empty:
+        return _figura_vacia("Estacionalidad — Precio promedio por mes y tipo")
     # Mapeo manual para forzar meses en español por si el server (Streamlit Cloud) está en inglés
     meses_es = {1:"Ene", 2:"Feb", 3:"Mar", 4:"Abr", 5:"May", 6:"Jun",
                 7:"Jul", 8:"Ago", 9:"Sep", 10:"Oct", 11:"Nov", 12:"Dic"}
@@ -711,7 +746,7 @@ def tab_ultima_subasta(df: pd.DataFrame):
             color="tipo_codigo", color_discrete_map=COLORES,
             title="Precio vs cantidad de animales por lote",
             labels={"cantidad_animales": "Animales en el lote", "precio_final_kg": "Precio (COP/kg)", "tipo_codigo": "Tipo"},
-            opacity=0.8, trendline="ols",
+            opacity=0.8,
         )
         fig3.update_traces(hovertemplate="<b>%{x} animales</b><br>Precio: $%{y:,.0f} COP/kg<extra></extra>")
         st.plotly_chart(fig3, use_container_width=True, config=PLOTLY_CONFIG)
@@ -728,7 +763,7 @@ def tab_ultima_subasta(df: pd.DataFrame):
             color="tipo_codigo", color_discrete_map=COLORES,
             title="Precio vs peso promedio por animal",
             labels={"peso_promedio": "Peso prom. por animal (kg)", "precio_final_kg": "Precio (COP/kg)", "tipo_codigo": "Tipo"},
-            opacity=0.8, trendline="ols",
+            opacity=0.8,
         )
         fig4.update_traces(hovertemplate="<b>%{x:.0f} kg/animal</b><br>Precio: $%{y:,.0f} COP/kg<extra></extra>")
         st.plotly_chart(fig4, use_container_width=True, config=PLOTLY_CONFIG)
