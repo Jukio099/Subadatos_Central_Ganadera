@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import sys
 import tempfile
 import urllib.request
 from dataclasses import dataclass
@@ -14,10 +15,13 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+_DIR_MODELO = Path(__file__).resolve().parent
+_DIR_PROYECTO = str(_DIR_MODELO.parent)
+if _DIR_PROYECTO not in sys.path:
+    sys.path.insert(0, _DIR_PROYECTO)
+
 from shared.data_cleaning import filtrar_lotes_comerciales
 
-
-_DIR_MODELO = Path(__file__).resolve().parent
 _ARTIFACTS_DIR = _DIR_MODELO / "ml_artifacts"
 
 CENTRAL_FEATURE_COLS = [
