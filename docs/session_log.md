@@ -50,3 +50,11 @@ Cuando el usuario escriba `cerrar sesion` o `actualiza contexto`, se debe regist
 - Pendientes P1: entrar al ajuste fino de equinos y mulares.
 - Pendientes P2: seguir usando GitHub CLI para operar workflows y variables del repo desde futuras sesiones.
 - Siguiente accion recomendada: retomar manana con el analisis de equinos y mulares, partiendo de que el workflow ETL manual ya quedo validado.
+
+## 2026-09-04
+
+- Objetivo: login, trial y dos planes (Dashboard 79.900 / Pro 149.900).
+- Hecho: billing con tests, SQL `create_suscripciones.sql`, gate Streamlit y candado de predictores. Checkout Wompi aún no está cableado.
+- Archivos: `billing/`, `tests/test_billing_*.py`, `sql/create_suscripciones.sql`, `modelo/acceso.py`, `modelo/app.py`, `modelo/pages/1_Predictor_MLOps.py`.
+- Pendientes P1: aplicar el SQL en Supabase, secrets de precios, Edge Functions Wompi, `STREAMLIT_APP_URL` en GitHub Variables.
+- Siguiente accion recomendada: correr `sql/create_suscripciones.sql` y probar el magic link en local.
