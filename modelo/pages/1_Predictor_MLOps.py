@@ -34,6 +34,13 @@ st.set_page_config(
     layout="wide",
 )
 
+from modelo.acceso import exigir_acceso_dashboard, mostrar_candado_pro  # noqa: E402
+
+_acceso = exigir_acceso_dashboard()
+if not _acceso.predictor:
+    mostrar_candado_pro()
+    st.stop()
+
 
 MARKETS = {
     "Central Ganadera de Medellin, Antioquia": {

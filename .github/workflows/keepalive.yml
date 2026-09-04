@@ -25,7 +25,7 @@ jobs:
       - name: Hacer ping a SubaDatos
         run: |
           if [ -z "$STREAMLIT_APP_URL" ]; then
-            echo "⚠️ Define la variable del repositorio STREAMLIT_APP_URL para activar el keepalive."
+            echo "⚠️ GitHub → Settings → Variables → STREAMLIT_APP_URL = https://TU-APP.streamlit.app"
             exit 0
           fi
 

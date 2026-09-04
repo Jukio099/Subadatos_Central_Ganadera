@@ -929,6 +929,10 @@ def tab_contacto():
 
 # ── MAIN ──────────────────────────────────────────────────────
 def main():
+    from acceso import exigir_acceso_dashboard, mostrar_candado_pro
+
+    acceso = exigir_acceso_dashboard()
+
     feria_sel = st.sidebar.selectbox(
         "🏠 Feria",
         ["Central Ganadera", "Casanare", FERIA_SUBASTAR],
@@ -1132,8 +1136,11 @@ def main():
 
     # ── Tab 7: Predictor
     with tab7:
-        st.header("🤖 Predictor de Precios (Próximamente)")
-        st.info("Esta sección corresponde a la Fase 6 del proyecto. Aquí se integrará el modelo de Machine Learning (ej. Random Forest o LSTM) para predecir precios basándose en peso, procedencia y estacionalidad.")
+        if not acceso.predictor:
+            mostrar_candado_pro()
+        else:
+            st.header("🤖 Predictor de Precios (Próximamente)")
+            st.info("Esta sección corresponde a la Fase 6 del proyecto. Aquí se integrará el modelo de Machine Learning (ej. Random Forest o LSTM) para predecir precios basándose en peso, procedencia y estacionalidad.")
 
     # ── Sección de feedback — al pie de la página principal ──────
     st.markdown("<br>", unsafe_allow_html=True)
