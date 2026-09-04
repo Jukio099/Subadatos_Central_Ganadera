@@ -1,7 +1,7 @@
 # Acceso por correo, prueba gratis y pago mensual — diseño
 
 Fecha: 2026-09-04  
-Estado: pendiente de revisión del usuario  
+Estado: aprobado por el usuario (2026-09-04)  
 Producto: dashboard Streamlit SubaDatos (`modelo/app.py`)
 
 ## Problema
@@ -245,4 +245,4 @@ Manuales (sandbox Wompi + correo de prueba):
 5. Cron de renovación + cancelar + “Ya pagué”.
 6. SMTP de producción (Resend) y CTA en `www.subadatos.com`.
 
-El plan detallado de código se escribe después de aprobar este documento, no antes.
+Plan de implementación: `docs/superpowers/plans/2026-09-04-acceso-pagos.md`.
