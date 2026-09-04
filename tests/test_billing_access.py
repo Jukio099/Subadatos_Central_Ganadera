@@ -1,7 +1,8 @@
 from datetime import datetime, timedelta, timezone
 import unittest
 
-from billing.access import decidir_acceso
+from billing.access import decidir_acceso, fila_desde_registro
+from billing.session_query import sesion_desde_query
 
 
 UTC = timezone.utc
@@ -117,6 +118,37 @@ class DecidirAccesoTests(unittest.TestCase):
         self.assertFalse(acceso.dashboard)
         self.assertFalse(acceso.predictor)
 
+    def test_fila_desde_registro_iso(self):
+        fila = fila_desde_registro(
+            {
+                "status": "trial",
+                "plan": "pro",
+                "trial_ends_at": "2026-09-11T12:00:00Z",
+                "access_ends_at": "2026-09-11T12:00:00+00:00",
+            }
+        )
+        self.assertEqual(fila["trial_ends_at"].tzinfo, timezone.utc)
+        acceso = decidir_acceso(fila, AHORA)
+        self.assertTrue(acceso.dashboard)
+        self.assertTrue(acceso.predictor)
+
+
+class SesionQueryTests(unittest.TestCase):
+    def test_token_hash(self):
+        got = sesion_desde_query({"token_hash": ["abc"], "type": ["email"]})
+        self.assertEqual(got["kind"], "otp")
+        self.assertEqual(got["token_hash"], "abc")
+
+    def test_access_token_plano(self):
+        got = sesion_desde_query({"access_token": "tok", "refresh_token": "ref"})
+        self.assertEqual(got["kind"], "token")
+        self.assertEqual(got["refresh_token"], "ref")
+
+    def test_vacio(self):
+        self.assertIsNone(sesion_desde_query({}))
+        self.assertIsNone(sesion_desde_query(None))
+
 
 if __name__ == "__main__":
     unittest.main()
+

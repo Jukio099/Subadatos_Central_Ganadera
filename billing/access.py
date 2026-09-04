@@ -25,6 +25,18 @@ def _como_dt(valor: Any) -> datetime:
     raise TypeError(f"fecha inválida: {valor!r}")
 
 
+def fila_desde_registro(data: dict | None) -> dict | None:
+    """Pasa timestamps ISO de Supabase a datetime timezone-aware."""
+    if data is None:
+        return None
+    fila = dict(data)
+    for clave in ("trial_ends_at", "access_ends_at"):
+        valor = fila.get(clave)
+        if isinstance(valor, str):
+            fila[clave] = datetime.fromisoformat(valor.replace("Z", "+00:00"))
+    return fila
+
+
 def decidir_acceso(fila: dict | None, ahora: datetime) -> Acceso:
     if ahora.tzinfo is None:
         raise ValueError("ahora debe llevar timezone")
